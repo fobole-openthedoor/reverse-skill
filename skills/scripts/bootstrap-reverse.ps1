@@ -1,4 +1,4 @@
-﻿#requires -Version 5
+#requires -Version 5
 
 [CmdletBinding()]
 param(
@@ -1052,6 +1052,45 @@ function Ensure-Capability {
                 }
             }
             throw "Capability $Name requires Go 1.24+ or Docker to install. Docs: $($definition.docsUrl)"
+        }
+        'dotnet-tool' {
+            if (-not $definition.PSObject.Properties['dotnetTool'] -or [string]::IsNullOrWhiteSpace([string]$definition.dotnetTool)) {
+                throw "dotnet-tool capability $Name is missing dotnetTool in bootstrap-manifest.json."
+            }
+            # The pin is load-bearing: unpinned 'dotnet tool install' may resolve to a broken package.
+            if (-not $definition.PSObject.Properties['pinnedVersion'] -or [string]::IsNullOrWhiteSpace([string]$definition.pinnedVersion)) {
+                throw "dotnet-tool capability $Name must set pinnedVersion in bootstrap-manifest.json."
+            }
+            $dotnetToolsDir = Join-Path (Get-ReverseUserProfilePath) '.dotnet\tools'
+            if (Get-FirstCommandPath -Names @([string]$definition.dotnetTool)) {
+                return $true
+            }
+            if (Test-Path -LiteralPath (Join-Path $dotnetToolsDir ([string]$definition.dotnetTool + '.exe'))) {
+                Add-ReverseProcessPath -Path $dotnetToolsDir
+                return $true
+            }
+            $dotnet = Get-FirstCommandPath -Names @('dotnet')
+            if ([string]::IsNullOrWhiteSpace($dotnet)) {
+                $dotnetRoot = Join-Path (Get-ReverseUserProfilePath) '.dotnet'
+                Add-ReverseProcessPath -Path $dotnetRoot
+                $dotnet = Get-FirstCommandPath -Names @('dotnet')
+            }
+            if ([string]::IsNullOrWhiteSpace($dotnet) -and (Test-ReverseIsWindows)) {
+                Ensure-WingetPackage -Id 'Microsoft.DotNet.SDK.8' -Label '.NET SDK 8'
+                $dotnet = Get-FirstCommandPath -Names @('dotnet')
+            }
+            if ([string]::IsNullOrWhiteSpace($dotnet)) {
+                throw ".NET SDK is required for $Name but was not found. Docs: $($definition.docsUrl)"
+            }
+            & $dotnet tool install --global $definition.dotnetTool --version ([string]$definition.pinnedVersion)
+            if ($LASTEXITCODE -ne 0) {
+                & $dotnet tool update --global $definition.dotnetTool --version ([string]$definition.pinnedVersion)
+                if ($LASTEXITCODE -ne 0) {
+                    throw "dotnet tool install failed for $($definition.dotnetTool) (exit code $LASTEXITCODE)."
+                }
+            }
+            Add-ReverseProcessPath -Path $dotnetToolsDir
+            return $true
         }
         default {
             throw "Unsupported bootstrap kind: $($definition.bootstrapKind)"

@@ -184,6 +184,7 @@ Capabilities (parity with bootstrap-reverse.ps1):
   jadx apktool frida frida-ps idalib-mcp jshookmcp reqable-mcp xquik-mcp anything-analyzer idapro
   r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp
   nmap pentestswarm binwalk yara pwntools
+  angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd
 
 Examples:
   bash skills/scripts/bootstrap-reverse.sh jadx apktool frida
@@ -205,6 +206,7 @@ ALL_CAPABILITIES=(
   jadx apktool jeb-pro frida frida-ps idalib-mcp jshookmcp reqable-mcp xquik-mcp anything-analyzer idapro
   r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp
   nmap pentestswarm binwalk yara pwntools
+  angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd
 )
 
 if $LIST_ONLY; then
@@ -244,6 +246,22 @@ install_brew_cask() {
   brew install --cask "$package"
 }
 
+# pip --user install with a PEP 668 escape hatch: try plain first, and only when
+# pip rejects the install with externally-managed-environment, retry with
+# --break-system-packages. Args: package [extra pip args...]
+python_pip_install_user() {
+  local package="$1"; shift
+  local out
+  if out=$(python3 -m pip install --user "$@" "$package" 2>&1); then return 0; fi
+  if printf '%s' "$out" | grep -q 'externally-managed-environment'; then
+    log_warn "PEP 668 externally-managed environment; retrying with --break-system-packages"
+    python3 -m pip install --user --break-system-packages "$@" "$package"
+    return
+  fi
+  printf '%s\n' "$out" >&2
+  return 1
+}
+
 ensure_python_runtime() {
   ensure_python_interpreter || return 1
   local pipx_package pipx_version current_version
@@ -254,7 +272,7 @@ ensure_python_runtime() {
     current_version=$(pipx --version 2>/dev/null | head -n1 | tr -d '[:space:]')
   fi
   if [[ "$current_version" != "$pipx_version" ]]; then
-    python3 -m pip install --user --upgrade "$pipx_package" || return 1
+    python_pip_install_user "$pipx_package" --upgrade || return 1
   fi
   python3 -m pipx ensurepath >/dev/null 2>&1 || true
   export PATH="$HOME/.local/bin:$PATH"
@@ -983,6 +1001,90 @@ ensure_pwntools() {
   pipx install "$package" || python3 -m pip install --user "$package" || return 1
 }
 
+# Python import libraries (angr, keystone-engine, lief, pefile) are consumed via
+# 'python3 -c "import ..."', so pipx isolation is meaningless for them. Install
+# with pip --user; python_pip_install_user retries with --break-system-packages
+# only when PEP 668 rejects the plain install.
+install_pip_user_package() {
+  local package="$1"
+  log_info "python3 -m pip install --user $package"
+  python_pip_install_user "$package"
+}
+
+# Args: capability_name python_import_module
+ensure_python_import_lib() {
+  local capability="$1"
+  local module="$2"
+  ensure_python_interpreter || return 1
+  if python3 -c "import $module" 2>/dev/null; then log_ok "$capability ready (import $module)"; return 0; fi
+  local package
+  package=$(manifest_field "$capability" pipPackage) || return 1
+  install_pip_user_package "$package" || return 1
+  python3 -c "import $module" 2>/dev/null || { log_err "$capability installed but 'import $module' still fails"; return 1; }
+}
+
+ensure_angr() { ensure_python_import_lib angr angr; }
+ensure_keystone_engine() { ensure_python_import_lib keystone-engine keystone; }
+ensure_lief() { ensure_python_import_lib lief lief; }
+ensure_pefile() { ensure_python_import_lib pefile pefile; }
+
+# pipx-isolated CLI tools (parity with ensure_frida_tools).
+# Args: capability_name cli_command
+ensure_pipx_cli() {
+  local capability="$1"
+  local cli="$2"
+  ensure_python_runtime || return 1
+  if has_cmd "$cli"; then log_ok "$capability ready: $(cmd_path "$cli")"; return 0; fi
+  local package
+  package=$(manifest_field "$capability" pipPackage) || return 1
+  pipx install --force "$package" || return 1
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+ensure_unblob() { ensure_pipx_cli unblob unblob; }
+ensure_ropper() { ensure_pipx_cli ropper ropper; }
+ensure_semgrep() { ensure_pipx_cli semgrep semgrep; }
+
+ensure_lldb() {
+  if has_cmd lldb; then log_ok "lldb ready: $(cmd_path lldb)"; return 0; fi
+  case "$PLATFORM" in
+    macos) install_brew llvm || manual_required lldb "lldb ships with Xcode Command Line Tools; or 'brew install llvm' (keg-only)" ;;
+    linux) install_apt lldb || manual_required lldb "Install LLVM lldb: https://apt.llvm.org/ or build from source" ;;
+    *) manual_required lldb "Install lldb manually. See $(platform_doc)" ;;
+  esac
+}
+
+ensure_dotnet_sdk() {
+  if has_cmd dotnet; then log_ok "dotnet SDK ready: $(cmd_path dotnet)"; return 0; fi
+  if [[ -x "$HOME/.dotnet/dotnet" ]]; then
+    export PATH="$HOME/.dotnet:$PATH"
+    export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
+    log_ok "dotnet SDK ready: $HOME/.dotnet/dotnet"
+    return 0
+  fi
+  local installer
+  installer="$(make_temp_file dotnet-install.sh)"
+  log_info "download https://dot.net/v1/dotnet-install.sh"
+  curl -fsSL "https://dot.net/v1/dotnet-install.sh" -o "$installer" || { rm -rf "$(dirname "$installer")"; return 1; }
+  bash "$installer" --channel 8.0 --install-dir "$HOME/.dotnet" || { rm -rf "$(dirname "$installer")"; return 1; }
+  rm -rf "$(dirname "$installer")"
+  export PATH="$HOME/.dotnet:$PATH"
+  export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
+  has_cmd dotnet || { log_err "dotnet SDK installation completed without a usable dotnet command."; return 1; }
+}
+
+ensure_ilspycmd() {
+  ensure_dotnet_sdk || return 1
+  export PATH="$HOME/.dotnet/tools:$PATH"
+  if has_cmd ilspycmd; then log_ok "ilspycmd ready: $(cmd_path ilspycmd)"; return 0; fi
+  local tool version
+  tool=$(manifest_field ilspycmd dotnetTool) || return 1
+  # The pin is load-bearing: unpinned 'dotnet tool install' resolves to a broken ilspycmd package.
+  version=$(manifest_field ilspycmd pinnedVersion) || return 1
+  dotnet tool install --global "$tool" --version "$version" || return 1
+  has_cmd ilspycmd || [[ -x "$HOME/.dotnet/tools/ilspycmd" ]] || { log_err "ilspycmd installed but not found on PATH or in $HOME/.dotnet/tools"; return 1; }
+}
+
 status_json_line() {
   local name="$1"
   local status="$2"
@@ -999,6 +1101,7 @@ cap_depends() {
     idapro) echo "idalib-mcp idapro" ;;
     frida-ps) echo "frida frida-ps" ;;
     rabin2) echo "r2 rabin2" ;;
+    ilspycmd) echo "dotnet-sdk ilspycmd" ;;
     *) echo "$1" ;;
   esac
 }
@@ -1043,6 +1146,16 @@ ensure_capability() {
     binwalk) ensure_binwalk ;;
     yara) ensure_yara ;;
     pwntools) ensure_pwntools ;;
+    angr) ensure_angr ;;
+    keystone-engine) ensure_keystone_engine ;;
+    lief) ensure_lief ;;
+    pefile) ensure_pefile ;;
+    unblob) ensure_unblob ;;
+    ropper) ensure_ropper ;;
+    semgrep) ensure_semgrep ;;
+    lldb) ensure_lldb ;;
+    dotnet-sdk) ensure_dotnet_sdk ;;
+    ilspycmd) ensure_ilspycmd ;;
     *) log_err "No bootstrap definition for capability: $name"; return 1 ;;
   esac
 }

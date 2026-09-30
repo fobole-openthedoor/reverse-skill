@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Get-ReverseUserProfilePath {
@@ -520,6 +520,111 @@ function Get-ReverseToolCatalog {
                 [pscustomobject]@{ Type = 'command'; Value = 'bkcrack' },
                 [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile 'Tools\bkcrack\bkcrack.exe') },
                 [pscustomobject]@{ Type = 'path'; Value = 'C:\Tools\bkcrack\bkcrack.exe' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'angr'
+            Skill = 'pwn-chain'
+            Purpose = '符号执行与二进制分析 Python 库'
+            FixedVersion = '10.0.0'
+            VersionArgs = @()
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'python-module'; Value = 'angr' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'keystone-engine'
+            Skill = 'pwn-chain'
+            Purpose = '汇编引擎 Python 绑定（拼 shellcode）'
+            FixedVersion = '0.9.2'
+            VersionArgs = @()
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'python-module'; Value = 'keystone' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'lief'
+            Skill = 'reverse-engineering'
+            Purpose = '二进制格式解析/插桩 Python 库'
+            FixedVersion = '1.0.0'
+            VersionArgs = @()
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'python-module'; Value = 'lief' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'pefile'
+            Skill = 'reverse-engineering'
+            Purpose = 'PE 解析 Python 库'
+            FixedVersion = '2024.8.26'
+            VersionArgs = @()
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'python-module'; Value = 'pefile' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'unblob'
+            Skill = 'firmware-pentest'
+            Purpose = '固件提取 CLI'
+            FixedVersion = '26.6.4'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'unblob' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\unblob.exe') }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'ropper'
+            Skill = 'pwn-chain'
+            Purpose = 'ROP gadget 搜索 CLI'
+            FixedVersion = '1.13.13'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'ropper' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\ropper.exe') }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'semgrep'
+            Skill = 'code-audit'
+            Purpose = 'SAST 静态扫描 CLI'
+            FixedVersion = '1.178.0'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'semgrep' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\semgrep.exe') }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'lldb'
+            Skill = 'asm-analysis'
+            Purpose = 'LLVM 调试器'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'lldb' },
+                [pscustomobject]@{ Type = 'path'; Value = 'C:\Program Files\LLVM\bin\lldb.exe' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'dotnet-sdk'
+            Skill = 'dotnet-reverse'
+            Purpose = '.NET SDK（ilspycmd 前置）'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'dotnet' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.dotnet\dotnet.exe') },
+                [pscustomobject]@{ Type = 'path'; Value = 'C:\Program Files\dotnet\dotnet.exe' }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'ilspycmd'
+            Skill = 'dotnet-reverse'
+            Purpose = '.NET 程序集反编译 CLI'
+            FixedVersion = '9.1.0.7988'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'ilspycmd' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.dotnet\tools\ilspycmd.exe') }
             )
         }
     )
@@ -1076,6 +1181,33 @@ function Resolve-ReverseToolSpec {
                         PrefixArgs = @('-jar', $candidate.Value)
                         VersionArgs = @('-jar', $candidate.Value, '--version')
                         FixedVersion = $fixedVersion
+                    }
+                }
+            }
+            'python-module' {
+                # Python import libraries (angr, keystone, lief, pefile) have no CLI on
+                # PATH; detect them by importing the module with the system Python.
+                $pythonCmd = Resolve-ReverseCommandCandidate -Name 'python'
+                if ($null -eq $pythonCmd) {
+                    $pythonCmd = Resolve-ReverseCommandCandidate -Name 'python3'
+                }
+                if ($null -ne $pythonCmd) {
+                    & $pythonCmd.Source -c "import $($candidate.Value)" *> $null
+                    if ($LASTEXITCODE -eq 0) {
+                        return [pscustomobject]@{
+                            Name = $definition.Name
+                            Skill = $definition.Skill
+                            Purpose = $definition.Purpose
+                            Available = $true
+                            IsExecutable = $false
+                            IsDirectory = $false
+                            Source = 'PythonModule'
+                            ResolvedPath = "python:$($candidate.Value)"
+                            Command = ''
+                            PrefixArgs = @()
+                            VersionArgs = @()
+                            FixedVersion = $fixedVersion
+                        }
                     }
                 }
             }

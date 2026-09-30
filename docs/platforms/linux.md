@@ -45,6 +45,11 @@ python3 -m pipx ensurepath
 | anything-analyzer | project clone + `pnpm install` | custom local service | Register its MCP endpoint in the Agent client. |
 | nuclei | GitHub release / `go install` | distro package if available | Often absent in Ubuntu apt. |
 | SecLists | `git clone https://github.com/danielmiessler/SecLists ~/tools/SecLists` | distro package if available | Keep path in tool index. |
+| Python reversing libs (angr, keystone-engine, lief, pefile) | `python3 -m pip install --user <pkg>` | append `--break-system-packages` only when PEP 668 rejects the plain install | Import libraries, not CLIs — pipx isolation is pointless for them. Bootstrap pins: angr 10.0.0, keystone-engine 0.9.2, lief 1.0.0, pefile 2024.8.26. |
+| unblob / ropper / semgrep | `pipx install <pkg>` | — | CLI tools; pipx isolation (same pattern as frida-tools). Bootstrap pins: unblob 26.6.4, ropper 1.13.13, semgrep 1.178.0. |
+| lldb | `sudo apt install lldb` | <https://apt.llvm.org/> for newer LLVM | LLVM debugger used by asm-analysis. |
+| .NET SDK 8 | `curl -fsSL https://dot.net/v1/dotnet-install.sh \| bash -s -- --channel 8.0 --install-dir ~/.dotnet` | distro `dotnet-sdk-8.0` when available | Required by ilspycmd; add `~/.dotnet` to `PATH` and set `DOTNET_ROOT`. |
+| ilspycmd | `dotnet tool install -g ilspycmd --version 9.1.0.7988` | — | The version pin is load-bearing: an unpinned install resolves to a broken package. Tools land in `~/.dotnet/tools`. |
 
 ## Recommended path layout
 
@@ -221,6 +226,13 @@ adb version || true
 frida --version || true
 r2 -v || true
 ghidraRun 2>/dev/null || true
+lldb --version || true
+python3 -c "import angr, keystone, lief, pefile" || true
+unblob --version || true
+ropper --version || true
+semgrep --version || true
+"$HOME/.dotnet/dotnet" --version || true
+"$HOME/.dotnet/tools/ilspycmd" --version || true
 bash skills/scripts/refresh-tool-index.sh
 ```
 

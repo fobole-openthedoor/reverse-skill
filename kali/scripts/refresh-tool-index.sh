@@ -53,7 +53,7 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
     echo "| 能力 | 工具可用 | MCP 已注册 | 服务在线 | 可自动安装 | 安装方式 |"
     echo "|------|---------|-----------|---------|-----------|---------|"
 
-    CAPABILITY_NAMES=("jadx" "apktool" "jeb-pro" "binaryninja" "frida" "idalib-mcp" "jshookmcp" "reqable-mcp" "xquik-mcp" "anything-analyzer" "idapro" "r2" "adb" "agent-browser" "ghidra-mcp" "seclists" "proxycat" "burpsuite-mcp" "nmap" "sqlmap" "hashcat" "hydra" "gobuster" "ffuf" "msfconsole" "nuclei" "pwntools" "bkcrack")
+    CAPABILITY_NAMES=("jadx" "apktool" "jeb-pro" "binaryninja" "frida" "idalib-mcp" "jshookmcp" "reqable-mcp" "xquik-mcp" "anything-analyzer" "idapro" "r2" "adb" "agent-browser" "ghidra-mcp" "seclists" "proxycat" "burpsuite-mcp" "nmap" "sqlmap" "hashcat" "hydra" "gobuster" "ffuf" "msfconsole" "nuclei" "pwntools" "bkcrack" "angr" "keystone-engine" "lief" "pefile" "unblob" "ropper" "semgrep" "lldb" "dotnet-sdk" "ilspycmd")
 
     for cap_name in "${CAPABILITY_NAMES[@]}"; do
         # 检查工具是否可用
@@ -74,6 +74,18 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
                 ;;
             reqable-mcp|jshookmcp)
                 if command -v npx &>/dev/null; then tool_available="✓"; fi
+                ;;
+            angr|keystone-engine|lief|pefile)
+                # Python import 库：用 import 探测而不是 PATH 上的 CLI
+                py_module="$cap_name"
+                [[ "$cap_name" == "keystone-engine" ]] && py_module="keystone"
+                if command -v python3 &>/dev/null && python3 -c "import $py_module" &>/dev/null; then tool_available="✓"; fi
+                ;;
+            dotnet-sdk)
+                if command -v dotnet &>/dev/null || [[ -x "$HOME/.dotnet/dotnet" ]]; then tool_available="✓"; fi
+                ;;
+            ilspycmd)
+                if command -v ilspycmd &>/dev/null || [[ -x "$HOME/.dotnet/tools/ilspycmd" ]]; then tool_available="✓"; fi
                 ;;
             *)
                 if command -v "$cap_name" &>/dev/null; then tool_available="✓"; fi
@@ -118,6 +130,12 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
                 ;;
             frida|idalib-mcp|proxycat|pwntools)
                 bootstrap_kind="pip-package"
+                ;;
+            angr|keystone-engine|lief|pefile|unblob|ropper|semgrep)
+                bootstrap_kind="pip-package"
+                ;;
+            ilspycmd)
+                bootstrap_kind="dotnet-tool"
                 ;;
             jshookmcp|reqable-mcp|agent-browser)
                 bootstrap_kind="npm-mcp"

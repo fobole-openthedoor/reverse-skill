@@ -31,6 +31,7 @@ for arg in "$@"; do
         --skip-refresh) SKIP_REFRESH=true ;;
         --list|-l)
             echo "jadx apktool jeb-pro frida frida-ps idalib-mcp jshookmcp reqable-mcp xquik-mcp anything-analyzer idapro r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp nmap pentestswarm pwntools bkcrack"
+            echo "angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd"
             echo "mcp-kali-server metasploitmcp hexstrike-ai adaptixc2 atomic-operator sstimap xsstrike wpprobe fluxion gef coercer evil-winrm-py netexec responder bloodhound certipy"
             exit 0
             ;;
@@ -46,6 +47,7 @@ if [[ ${#CAPABILITIES[@]} -eq 0 ]]; then
     echo ""
     echo "  [逆向分析]"
     echo "    jadx apktool jeb-pro frida frida-ps idalib-mcp r2 rabin2 adb gef pwntools"
+    echo "    angr keystone-engine lief pefile ropper lldb dotnet-sdk ilspycmd"
     echo ""
     echo "  [渗透测试 - 经典工具]"
     echo "    nmap sqlmap hashcat hydra gobuster ffuf msfconsole nuclei"
@@ -63,7 +65,7 @@ if [[ ${#CAPABILITIES[@]} -eq 0 ]]; then
     echo "    bkcrack"
     echo ""
     echo "  [其他]"
-    echo "    ghidra-mcp seclists proxycat burpsuite-mcp"
+    echo "    ghidra-mcp seclists proxycat burpsuite-mcp unblob semgrep"
     echo ""
     echo "示例:"
     echo "  $0 mcp-kali-server metasploitmcp hexstrike-ai pentestswarm  # 全部渗透 MCP"
@@ -121,6 +123,17 @@ install_npm_global() {
         npm install -g "$package"
     else
         sudo npm install -g "$package" 2>/dev/null || npm install -g "$package"
+    fi
+}
+
+# pipx 隔离安装 CLI（pipx 缺失时回退 pip --user）
+install_pipx_cli() {
+    local package="$1"
+    if command -v pipx &>/dev/null; then
+        log_info "pipx install $package ..."
+        pipx install "$package"
+    else
+        install_pip_package "$package"
     fi
 }
 
@@ -565,6 +578,71 @@ EOF
             ;;
         pwntools)
             install_pip_package "pwntools==4.15.0"
+            ;;
+
+        # ─── Python import 库（pip --user，PEP 668 由 install_pip_package 回退处理；非 CLI 不走 pipx） ───
+        angr)
+            install_pip_package "angr==10.0.0"
+            python3 -c "import angr" || return 1
+            ;;
+        keystone-engine)
+            install_pip_package "keystone-engine==0.9.2"
+            python3 -c "import keystone" || return 1
+            ;;
+        lief)
+            install_pip_package "lief==1.0.0"
+            python3 -c "import lief" || return 1
+            ;;
+        pefile)
+            install_pip_package "pefile==2024.8.26"
+            python3 -c "import pefile" || return 1
+            ;;
+
+        # ─── pipx 隔离 CLI（pipx 缺失时回退 pip --user） ───
+        unblob)
+            install_pipx_cli "unblob==26.6.4"
+            ;;
+        ropper)
+            install_pipx_cli "ropper==1.13.13"
+            ;;
+        semgrep)
+            install_pipx_cli "semgrep==1.178.0"
+            ;;
+
+        lldb)
+            install_apt_package "lldb"
+            ;;
+
+        # ─── .NET SDK + ilspycmd（dotnet global tool，版本必须 pin） ───
+        dotnet-sdk)
+            if command -v dotnet &>/dev/null; then
+                log_ok "dotnet SDK 已可用: $(command -v dotnet)"
+            elif [[ -x "$HOME/.dotnet/dotnet" ]]; then
+                export PATH="$HOME/.dotnet:$PATH"
+                export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
+                log_ok "dotnet SDK 已可用: $HOME/.dotnet/dotnet"
+            else
+                install_apt_package "dotnet-sdk-8.0" || {
+                    log_info "apt 不可用，回退官方 dotnet-install.sh → $HOME/.dotnet"
+                    local dotnet_installer
+                    dotnet_installer=$(mktemp /tmp/dotnet-install-XXXXXX.sh)
+                    curl -fsSL "https://dot.net/v1/dotnet-install.sh" -o "$dotnet_installer" || { rm -f "$dotnet_installer"; return 1; }
+                    bash "$dotnet_installer" --channel 8.0 --install-dir "$HOME/.dotnet" || { rm -f "$dotnet_installer"; return 1; }
+                    rm -f "$dotnet_installer"
+                    export PATH="$HOME/.dotnet:$PATH"
+                    export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
+                }
+            fi
+            ;;
+        ilspycmd)
+            ensure_capability "dotnet-sdk"
+            export PATH="$HOME/.dotnet/tools:$PATH"
+            if command -v ilspycmd &>/dev/null || [[ -x "$HOME/.dotnet/tools/ilspycmd" ]]; then
+                log_ok "ilspycmd 已可用"
+            else
+                # pin 是刚性的：不指定版本会装到坏包
+                dotnet tool install --global ilspycmd --version 9.1.0.7988
+            fi
             ;;
 
         # ─── GitHub Release ───

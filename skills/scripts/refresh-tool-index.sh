@@ -29,7 +29,7 @@ cmd_path() { command -v "$1" 2>/dev/null || true; }
 
 run_version() {
   local cmd="$1"; shift
-  if ! has_cmd "$cmd"; then
+  if ! has_cmd "$cmd" && [[ ! -x "$cmd" ]]; then
     echo ""
     return 0
   fi
@@ -98,10 +98,30 @@ install_hint() {
     linux:binwalk) echo "apt: sudo apt install binwalk" ;;
     linux:yara) echo "apt: sudo apt install yara" ;;
     linux:pwntools) echo "pipx: pipx install pwntools" ;;
+    linux:angr) echo "pip: python3 -m pip install --user angr==10.0.0 (PEP 668: add --break-system-packages)" ;;
+    linux:keystone-engine) echo "pip: python3 -m pip install --user keystone-engine==0.9.2 (PEP 668: add --break-system-packages)" ;;
+    linux:lief) echo "pip: python3 -m pip install --user lief==1.0.0 (PEP 668: add --break-system-packages)" ;;
+    linux:pefile) echo "pip: python3 -m pip install --user pefile==2024.8.26 (PEP 668: add --break-system-packages)" ;;
+    linux:unblob) echo "pipx: pipx install unblob==26.6.4" ;;
+    linux:ropper) echo "pipx: pipx install ropper==1.13.13" ;;
+    linux:semgrep) echo "pipx: pipx install semgrep==1.178.0" ;;
+    linux:lldb) echo "apt: sudo apt install lldb" ;;
+    linux:dotnet-sdk) echo "dotnet-install.sh: curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir \$HOME/.dotnet" ;;
+    linux:ilspycmd) echo "dotnet tool install -g ilspycmd --version 9.1.0.7988 (pin required; needs dotnet-sdk)" ;;
 
     macos:binwalk) echo "brew: brew install binwalk" ;;
     macos:yara) echo "brew: brew install yara" ;;
     macos:pwntools) echo "pipx: pipx install pwntools" ;;
+    macos:angr) echo "pip: python3 -m pip install --user angr==10.0.0" ;;
+    macos:keystone-engine) echo "pip: python3 -m pip install --user keystone-engine==0.9.2" ;;
+    macos:lief) echo "pip: python3 -m pip install --user lief==1.0.0" ;;
+    macos:pefile) echo "pip: python3 -m pip install --user pefile==2024.8.26" ;;
+    macos:unblob) echo "pipx: pipx install unblob==26.6.4" ;;
+    macos:ropper) echo "pipx: pipx install ropper==1.13.13" ;;
+    macos:semgrep) echo "pipx: pipx install semgrep==1.178.0" ;;
+    macos:lldb) echo "Xcode CLT ships lldb; or brew: brew install llvm (keg-only)" ;;
+    macos:dotnet-sdk) echo "dotnet-install.sh: curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir \$HOME/.dotnet" ;;
+    macos:ilspycmd) echo "dotnet tool install -g ilspycmd --version 9.1.0.7988 (pin required; needs dotnet-sdk)" ;;
     linux:xquik-mcp|macos:xquik-mcp) echo "remote MCP: register https://xquik.com/mcp in the selected host, then complete OAuth" ;;
     *) echo "see PLATFORMS.md and docs/platforms/${PLATFORM}.md" ;;
   esac
@@ -122,7 +142,7 @@ TOOLS=(
   "frida-ps|reverse-engineering|Frida process listing|frida-ps|frida-ps --version|$HOME/.local/bin/frida-ps"
   "r2|radare2|radare2 CLI analysis|r2|r2 -v|"
   "rabin2|radare2|Binary metadata extraction|rabin2|rabin2 -v|"
-  "ghidra|reverse-engineering|Ghidra reverse-engineering suite|ghidraRun,analyzeHeadless,ghidra-analyzeHeadless,ghidra|ghidraRun --version|$HOME/tools/ghidra/ghidraRun;/opt/ghidra/ghidraRun;/usr/share/ghidra/ghidraRun;/opt/ghidra/support/analyzeHeadless;/usr/share/ghidra/support/analyzeHeadless;/Applications/Ghidra.app"
+  "ghidra|reverse-engineering|Ghidra reverse-engineering suite|ghidraRun,analyzeHeadless,ghidra-analyzeHeadless,ghidra|none|$HOME/tools/ghidra/ghidraRun;$HOME/tools/ghidra/support/analyzeHeadless;/opt/ghidra/ghidraRun;/usr/share/ghidra/ghidraRun;/opt/ghidra/support/analyzeHeadless;/usr/share/ghidra/support/analyzeHeadless;/Applications/Ghidra.app"
   "idapro|ida-reverse|IDA Pro commercial reverse-engineering suite|idat|idat -v|/opt/idapro/idat;/Applications/IDA Professional.app;/Applications/IDA Free.app"
   "burpsuite|burp-mcp|BurpSuite desktop application|burpsuite|burpsuite --version|/Applications/Burp Suite Professional.app;/Applications/Burp Suite Community Edition.app"
   "graphviz|diagram-generator|Graphviz diagram rendering|dot|dot -V|"
@@ -143,6 +163,16 @@ TOOLS=(
   "burp-mcp-full|burp-mcp|Local Burp MCP extension and stdio bridge|none|none|$REPO_ROOT/burp-mcp-full/mcp-bridge.js"
   "yara|malware-analysis|Malware rule matching engine|yara|yara --version|"
   "pwntools|reverse-engineering|CTF pwn exploit development framework|pwn|pwn version|"
+  "angr|pwn-chain|Python symbolic execution / binary analysis library|pyimport:angr|pypkg:angr|"
+  "keystone-engine|pwn-chain|Python assembler engine library (shellcode building)|pyimport:keystone|pypkg:keystone-engine|"
+  "lief|reverse-engineering|Python binary format parsing/instrumentation library|pyimport:lief|pypkg:lief|"
+  "pefile|reverse-engineering|Python PE file parsing library|pyimport:pefile|pypkg:pefile|"
+  "unblob|firmware-pentest|Firmware extraction CLI|unblob|unblob --version|$HOME/.local/bin/unblob"
+  "ropper|pwn-chain|ROP gadget finder CLI|ropper|ropper --version|$HOME/.local/bin/ropper"
+  "semgrep|code-audit|Static analysis (SAST) CLI|semgrep|semgrep --version|$HOME/.local/bin/semgrep"
+  "lldb|asm-analysis|LLVM debugger|lldb|lldb --version|"
+  "dotnet-sdk|core-runtime|.NET SDK (dotnet CLI) for ilspycmd|dotnet|dotnet --version|$HOME/.dotnet/dotnet"
+  "ilspycmd|dotnet-reverse|.NET assembly decompiler CLI|ilspycmd|ilspycmd --version|$HOME/.dotnet/tools/ilspycmd"
 )
 
 records_tmp="$(mktemp)"
@@ -171,6 +201,16 @@ for entry in "${TOOLS[@]}"; do
   if [[ "$commands" != "none" ]]; then
     IFS=',' read -ra cmd_list <<< "$commands"
     for cmd in "${cmd_list[@]}"; do
+      if [[ "$cmd" == pyimport:* ]]; then
+        # Python import library: detected by importing the module, not by a CLI on PATH.
+        if has_cmd python3 && python3 -c "import ${cmd#pyimport:}" >/dev/null 2>&1; then
+          available="yes"
+          path="$(python3 -c "import ${cmd#pyimport:}, os; print(os.path.dirname(${cmd#pyimport:}.__file__))" 2>/dev/null)"
+          source="python-import"
+          break
+        fi
+        continue
+      fi
       if has_cmd "$cmd"; then
         available="yes"
         path="$(cmd_path "$cmd")"
@@ -192,11 +232,30 @@ for entry in "${TOOLS[@]}"; do
     done
   fi
 
-  if [[ -n "$version_spec" && "$version_spec" != "none" ]]; then
+  if [[ "$version_spec" == pypkg:* ]]; then
+    # Version of a Python import library via importlib.metadata (dist name after 'pypkg:').
+    if [[ "$available" == "yes" ]] && has_cmd python3; then
+      version="$(python3 -c "import importlib.metadata; print(importlib.metadata.version('${version_spec#pypkg:}'))" 2>/dev/null || true)"
+    fi
+  elif [[ -n "$version_spec" && "$version_spec" != "none" ]]; then
     read -r -a version_parts <<< "$version_spec"
     if has_cmd "${version_parts[0]}"; then
       version="$(run_version "${version_parts[@]}")"
+    elif [[ "$source" == "path-probe" && -x "$path" && "$(basename "$path")" == "${version_parts[0]}" ]]; then
+      # DOTNET_ROOT default lets dotnet apphosts (ilspycmd) run from $HOME/.dotnet/tools.
+      version="$(DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}" run_version "$path" "${version_parts[@]:1}")"
     fi
+  fi
+
+  # ghidraRun --version prints launcher noise ("Exited with error..."); read the
+  # version from the install's application.properties instead.
+  if [[ "$name" == "ghidra" && -z "$version" ]]; then
+    for props in "$HOME/tools/ghidra/Ghidra/application.properties" "$HOME/tools/ghidra/application.properties" "/opt/ghidra/Ghidra/application.properties" "/usr/share/ghidra/Ghidra/application.properties"; do
+      if [[ -f "$props" ]]; then
+        version="$(sed -n 's/^application\.version=//p' "$props" | head -n 1 | tr -d '[:space:]')"
+        [[ -n "$version" ]] && break
+      fi
+    done
   fi
 
   [[ -z "$path" ]] && path="—"

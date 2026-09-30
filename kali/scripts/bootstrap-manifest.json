@@ -582,6 +582,109 @@
       "canAutoInstall": true,
       "verifyCommand": "bkcrack",
       "kaliNote": "传统 ZipCrypto 已知明文攻击工具；Kali/Debian 可通过 apt 安装。"
+    },
+    {
+      "name": "angr",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "angr==10.0.0",
+      "pinnedVersion": "10.0.0",
+      "docsUrl": "https://angr.io/",
+      "canAutoInstall": true,
+      "verifyImport": "angr",
+      "kaliNote": "Python import 库（符号执行），pip --user 安装，PEP 668 下自动回退 --break-system-packages；不要用 pipx。"
+    },
+    {
+      "name": "keystone-engine",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "keystone-engine==0.9.2",
+      "pinnedVersion": "0.9.2",
+      "docsUrl": "https://www.keystone-engine.org/",
+      "canAutoInstall": true,
+      "verifyImport": "keystone",
+      "kaliNote": "Python import 库（汇编引擎绑定，拼 shellcode 用）。同 angr 的 pip --user 安装路径。"
+    },
+    {
+      "name": "lief",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "lief==1.0.0",
+      "pinnedVersion": "1.0.0",
+      "docsUrl": "https://lief.re/",
+      "canAutoInstall": true,
+      "verifyImport": "lief",
+      "kaliNote": "Python import 库（二进制格式解析/插桩）。同 angr 的 pip --user 安装路径。"
+    },
+    {
+      "name": "pefile",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "pefile==2024.8.26",
+      "pinnedVersion": "2024.8.26",
+      "docsUrl": "https://github.com/erocarrera/pefile",
+      "canAutoInstall": true,
+      "verifyImport": "pefile",
+      "kaliNote": "Python import 库（PE 解析）。同 angr 的 pip --user 安装路径。"
+    },
+    {
+      "name": "unblob",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "unblob==26.6.4",
+      "pinnedVersion": "26.6.4",
+      "docsUrl": "https://github.com/onekey-sec/unblob",
+      "canAutoInstall": true,
+      "verifyCommand": "unblob",
+      "kaliNote": "固件提取 CLI，pipx 安装；提取后端（7z、sasquatch 等）走 apt。"
+    },
+    {
+      "name": "ropper",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "ropper==1.13.13",
+      "pinnedVersion": "1.13.13",
+      "docsUrl": "https://github.com/sashs/Ropper",
+      "canAutoInstall": true,
+      "verifyCommand": "ropper",
+      "kaliNote": "ROP gadget 搜索 CLI，pipx 安装（apt 也有 ropper 但版本旧）。"
+    },
+    {
+      "name": "semgrep",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "semgrep==1.178.0",
+      "pinnedVersion": "1.178.0",
+      "docsUrl": "https://semgrep.dev/",
+      "canAutoInstall": true,
+      "verifyCommand": "semgrep",
+      "kaliNote": "SAST 静态扫描 CLI，pipx 安装。"
+    },
+    {
+      "name": "lldb",
+      "bootstrapKind": "apt-package",
+      "aptPackage": "lldb",
+      "docsUrl": "https://lldb.llvm.org/",
+      "canAutoInstall": true,
+      "verifyCommand": "lldb",
+      "kaliNote": "apt install lldb。LLVM 调试器，asm-analysis 链路使用。"
+    },
+    {
+      "name": "dotnet-sdk",
+      "bootstrapKind": "apt-package",
+      "aptPackage": "dotnet-sdk-8.0",
+      "installDir": "$HOME/.dotnet",
+      "docsUrl": "https://dotnet.microsoft.com/download",
+      "canAutoInstall": true,
+      "verifyCommand": "dotnet",
+      "kaliNote": "apt install dotnet-sdk-8.0；失败时回退官方 dotnet-install.sh 到 $HOME/.dotnet（channel 8.0）。ilspycmd 的前置。"
+    },
+    {
+      "name": "ilspycmd",
+      "bootstrapKind": "dotnet-tool",
+      "dotnetTool": "ilspycmd",
+      "pinnedVersion": "9.1.0.7988",
+      "dependsOn": [
+        "dotnet-sdk"
+      ],
+      "installDir": "$HOME/.dotnet/tools",
+      "docsUrl": "https://github.com/icsharpcode/ILSpy",
+      "canAutoInstall": true,
+      "verifyCommand": "ilspycmd",
+      "kaliNote": "dotnet tool install -g ilspycmd --version 9.1.0.7988。版本必须 pin：不指定版本会装到坏包。"
     }
   ]
 }

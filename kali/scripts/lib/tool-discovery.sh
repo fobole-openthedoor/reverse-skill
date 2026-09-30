@@ -86,6 +86,17 @@ declare -a TOOL_CATALOG=(
     "aircrack-ng|pentest-tools|WiFi 破解套件|--help|aircrack-ng"
     "wireshark|pentest-tools|网络协议分析|--version|wireshark,tshark"
     "burpsuite|pentest-tools|Web 代理与漏洞扫描||burpsuite"
+    # ─── 跨平台补齐工具（pip / pipx / apt / dotnet） ───
+    "angr|pwn-chain|符号执行与二进制分析 Python 库|angr|py:angr"
+    "keystone-engine|pwn-chain|汇编引擎 Python 绑定（拼 shellcode）|keystone-engine|py:keystone"
+    "lief|reverse-engineering|二进制格式解析/插桩 Python 库|lief|py:lief"
+    "pefile|reverse-engineering|PE 解析 Python 库|pefile|py:pefile"
+    "unblob|firmware-pentest|固件提取 CLI|--version|unblob,${HOME}/.local/bin/unblob"
+    "ropper|pwn-chain|ROP gadget 搜索 CLI|--version|ropper,${HOME}/.local/bin/ropper"
+    "semgrep|code-audit|SAST 静态扫描 CLI|--version|semgrep,${HOME}/.local/bin/semgrep"
+    "lldb|asm-analysis|LLVM 调试器|--version|lldb"
+    "dotnet-sdk|dotnet-reverse|.NET SDK（ilspycmd 前置）|--version|dotnet,${HOME}/.dotnet/dotnet"
+    "ilspycmd|dotnet-reverse|.NET 程序集反编译 CLI|--version|ilspycmd,${HOME}/.dotnet/tools/ilspycmd"
 )
 
 # 脚本引用映射
@@ -130,6 +141,16 @@ declare -A SCRIPT_REFS=(
     ["bkcrack"]="reverse-engineering/crypto-decode-tools.md,../CTF-Sandbox-Orchestrator/competition-zip-archive/SKILL.md"
     ["netexec"]="pentest-tools/SKILL.md"
     ["responder"]="pentest-tools/SKILL.md"
+    ["angr"]="pwn-chain/SKILL.md"
+    ["keystone-engine"]="pwn-chain/SKILL.md"
+    ["lief"]="reverse-engineering/SKILL.md"
+    ["pefile"]="reverse-engineering/SKILL.md"
+    ["unblob"]="firmware-pentest/SKILL.md"
+    ["ropper"]="pwn-chain/SKILL.md"
+    ["semgrep"]="code-audit/SKILL.md"
+    ["lldb"]="asm-analysis/SKILL.md"
+    ["dotnet-sdk"]="dotnet-reverse/SKILL.md"
+    ["ilspycmd"]="dotnet-reverse/SKILL.md"
 )
 
 # ─── 工具发现函数 ─────────────────────────────────────────────────────────────────
@@ -164,7 +185,8 @@ get_tool_version() {
     if [[ "${cmd##*/}" == "pwn" && "$version_args" == "version" ]]; then
         output=$(PWNLIB_NOTERM=1 "$cmd" version 2>&1 | head -n1) || true
     else
-        output=$("$cmd" $version_args 2>&1 | head -n1) || true
+        # DOTNET_ROOT 默认值让 $HOME/.dotnet/tools 下的 apphost（如 ilspycmd）可直接探测版本
+        output=$(DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}" "$cmd" $version_args 2>&1 | head -n1) || true
     fi
     echo "$output"
 }
@@ -178,6 +200,19 @@ resolve_tool() {
     IFS=',' read -ra candidates <<< "$fallbacks"
 
     for candidate in "${candidates[@]}"; do
+        # Python import 库：py:<module> 用 import 探测，version_args 字段携带 pip 包名
+        if [[ "$candidate" == py:* ]]; then
+            local module="${candidate#py:}"
+            if command -v python3 &>/dev/null && python3 -c "import $module" &>/dev/null; then
+                local py_ver=""
+                local dist="${version_args:-$module}"
+                py_ver=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('$dist'))" 2>/dev/null) || py_ver=""
+                echo "${name}|${skill}|${purpose}|yes|python3:${module}|${py_ver}|python-import"
+                return
+            fi
+            continue
+        fi
+
         # 展开 glob（如 build-tools/*/apksigner）
         local expanded
         expanded=$(compgen -G "$candidate" 2>/dev/null | head -n1) || expanded=""

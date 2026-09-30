@@ -49,6 +49,11 @@ python3 -m pipx ensurepath
 | anything-analyzer | project clone + `pnpm install` | custom local service | Register its MCP endpoint. |
 | nuclei | `brew install nuclei` | GitHub release / Go install | Optional security scanner. |
 | SecLists | Git clone | — | Usually clone to `~/tools/SecLists`. |
+| Python reversing libs (angr, keystone-engine, lief, pefile) | `python3 -m pip install --user <pkg>` | venv | Import libraries, not CLIs — do not pipx-install them. Bootstrap pins: angr 10.0.0, keystone-engine 0.9.2, lief 1.0.0, pefile 2024.8.26. |
+| unblob / ropper / semgrep | `pipx install <pkg>` | — | CLI tools; pipx isolation. Bootstrap pins: unblob 26.6.4, ropper 1.13.13, semgrep 1.178.0. |
+| lldb | Xcode Command Line Tools (`lldb` ships with them) | `brew install llvm` (keg-only; add its bin to PATH) | LLVM debugger used by asm-analysis. |
+| .NET SDK 8 | `curl -fsSL https://dot.net/v1/dotnet-install.sh \| bash -s -- --channel 8.0 --install-dir ~/.dotnet` | `brew install --cask dotnet-sdk` | Required by ilspycmd; add `~/.dotnet` to `PATH` and set `DOTNET_ROOT`. |
+| ilspycmd | `dotnet tool install -g ilspycmd --version 9.1.0.7988` | — | The version pin is load-bearing: an unpinned install resolves to a broken package. Tools land in `~/.dotnet/tools`. |
 
 ## Recommended path layout
 

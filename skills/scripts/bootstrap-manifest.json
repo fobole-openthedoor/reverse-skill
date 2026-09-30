@@ -354,6 +354,111 @@
       "verifyCommand": "bkcrack",
       "releaseTag": "v1.8.1",
       "preferApiDigest": true
+    },
+    {
+      "name": "angr",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "angr==10.0.0",
+      "pinnedVersion": "10.0.0",
+      "docsUrl": "https://angr.io/",
+      "canAutoInstall": true,
+      "verifyImport": "angr",
+      "note": "Python import library, not a CLI. pipx isolation is pointless here; install with 'python3 -m pip install --user' and fall back to --break-system-packages only when PEP 668 rejects the plain install."
+    },
+    {
+      "name": "keystone-engine",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "keystone-engine==0.9.2",
+      "pinnedVersion": "0.9.2",
+      "docsUrl": "https://www.keystone-engine.org/",
+      "canAutoInstall": true,
+      "verifyImport": "keystone",
+      "note": "Python import library (assembler engine bindings). Same pip --user install path as angr; do not pipx-install."
+    },
+    {
+      "name": "lief",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "lief==1.0.0",
+      "pinnedVersion": "1.0.0",
+      "docsUrl": "https://lief.re/",
+      "canAutoInstall": true,
+      "verifyImport": "lief",
+      "note": "Python import library for binary format parsing/instrumentation. Same pip --user install path as angr; do not pipx-install."
+    },
+    {
+      "name": "pefile",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "pefile==2024.8.26",
+      "pinnedVersion": "2024.8.26",
+      "docsUrl": "https://github.com/erocarrera/pefile",
+      "canAutoInstall": true,
+      "verifyImport": "pefile",
+      "note": "Python import library for PE parsing. Same pip --user install path as angr; do not pipx-install."
+    },
+    {
+      "name": "unblob",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "unblob==26.6.4",
+      "pinnedVersion": "26.6.4",
+      "docsUrl": "https://github.com/onekey-sec/unblob",
+      "canAutoInstall": true,
+      "verifyCommand": "unblob",
+      "note": "CLI tool; install via pipx (parity with frida-tools). Extraction backends (7z, sasquatch, ...) come from the OS package manager."
+    },
+    {
+      "name": "ropper",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "ropper==1.13.13",
+      "pinnedVersion": "1.13.13",
+      "docsUrl": "https://github.com/sashs/Ropper",
+      "canAutoInstall": true,
+      "verifyCommand": "ropper",
+      "note": "ROP gadget CLI; install via pipx."
+    },
+    {
+      "name": "semgrep",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "semgrep==1.178.0",
+      "pinnedVersion": "1.178.0",
+      "docsUrl": "https://semgrep.dev/",
+      "canAutoInstall": true,
+      "verifyCommand": "semgrep",
+      "note": "SAST CLI; install via pipx."
+    },
+    {
+      "name": "lldb",
+      "bootstrapKind": "winget-package",
+      "wingetId": "LLVM.LLVM",
+      "pinPolicy": "winget-latest",
+      "docsUrl": "https://lldb.llvm.org/",
+      "canAutoInstall": true,
+      "verifyCommand": "lldb",
+      "note": "Linux/macOS install via apt/brew in bootstrap-reverse.sh; the wingetId only applies to the Windows ps1 path."
+    },
+    {
+      "name": "dotnet-sdk",
+      "bootstrapKind": "winget-package",
+      "wingetId": "Microsoft.DotNet.SDK.8",
+      "pinPolicy": "winget-latest",
+      "installDir": "%USERPROFILE%\\.dotnet",
+      "docsUrl": "https://dotnet.microsoft.com/download",
+      "canAutoInstall": true,
+      "verifyCommand": "dotnet",
+      "note": "Linux/macOS install via the official dotnet-install.sh into $HOME/.dotnet (channel 8.0); the wingetId only applies to the Windows ps1 path."
+    },
+    {
+      "name": "ilspycmd",
+      "bootstrapKind": "dotnet-tool",
+      "dotnetTool": "ilspycmd",
+      "pinnedVersion": "9.1.0.7988",
+      "dependsOn": [
+        "dotnet-sdk"
+      ],
+      "installDir": "%USERPROFILE%\\.dotnet\\tools",
+      "docsUrl": "https://github.com/icsharpcode/ILSpy",
+      "canAutoInstall": true,
+      "verifyCommand": "ilspycmd",
+      "note": "dotnet global tool. The version MUST stay pinned: an unpinned 'dotnet tool install -g ilspycmd' resolves to a broken package. Tools land in $HOME/.dotnet/tools (%USERPROFILE%\\.dotnet\\tools on Windows)."
     }
   ]
 }
