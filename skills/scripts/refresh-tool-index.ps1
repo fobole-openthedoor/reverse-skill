@@ -68,6 +68,7 @@ $scriptRefs = @{
     'lldb' = @('asm-analysis/SKILL.md')
     'dotnet-sdk' = @('dotnet-reverse/SKILL.md')
     'ilspycmd' = @('dotnet-reverse/SKILL.md')
+    'rekit' = @('ghidra-reverse/SKILL.md', 'binary-diff/SKILL.md')
 }
 
 $skillsRoot = Split-Path -Parent $PSScriptRoot

@@ -28,6 +28,18 @@ description: Use for free/open reverse engineering with Ghidra (headless or GUI)
 | 开源 / 批量 / 教学 | **本 skill** |
 | 仅 CLI 快速侦察 | `radare2/` |
 
+## 大型样本先做快速预检（rekit）
+
+大二进制 / 固件不要直接 Ghidra 全量分析（小时级）。先用随仓分发的 `rekit`（`skills/tools/rekit/`，安装见其 README/install.sh）圈候选：
+
+```bash
+rekit scan <bin>                         # 看面：格式/架构/段/熵/可疑区域
+rekit triage <bin> -k 20 --json          # 排序后的候选函数地址
+rekit corpus search <bin> "<自然语言>"    # 按概念搜函数，如 "rc4 key schedule"
+```
+
+然后 Ghidra 只精读候选地址；分析产物用 `rekit findings add` 沉淀为结构化发现。缺 fastembed 时 corpus 不可用，scan/triage 不受影响。
+
 ## 工作流
 
 ### 1. 项目与自动分析

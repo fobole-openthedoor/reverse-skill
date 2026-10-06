@@ -122,6 +122,7 @@ install_hint() {
     macos:lldb) echo "Xcode CLT ships lldb; or brew: brew install llvm (keg-only)" ;;
     macos:dotnet-sdk) echo "dotnet-install.sh: curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir \$HOME/.dotnet" ;;
     macos:ilspycmd) echo "dotnet tool install -g ilspycmd --version 9.1.0.7988 (pin required; needs dotnet-sdk)" ;;
+    linux:rekit|macos:rekit) echo "ships with reverse-skill: bash skills/tools/rekit/install.sh" ;;
     linux:xquik-mcp|macos:xquik-mcp) echo "remote MCP: register https://xquik.com/mcp in the selected host, then complete OAuth" ;;
     *) echo "see PLATFORMS.md and docs/platforms/${PLATFORM}.md" ;;
   esac
@@ -173,6 +174,7 @@ TOOLS=(
   "lldb|asm-analysis|LLVM debugger|lldb|lldb --version|"
   "dotnet-sdk|core-runtime|.NET SDK (dotnet CLI) for ilspycmd|dotnet|dotnet --version|$HOME/.dotnet/dotnet"
   "ilspycmd|dotnet-reverse|.NET assembly decompiler CLI|ilspycmd|ilspycmd --version|$HOME/.dotnet/tools/ilspycmd"
+  "rekit|reverse-engineering|Fast static triage, semantic function corpus and findings registry (ships with reverse-skill)|rekit|rekit --version|$REPO_ROOT/skills/tools/rekit/rekit/__main__.py;$HOME/.local/bin/rekit"
 )
 
 records_tmp="$(mktemp)"

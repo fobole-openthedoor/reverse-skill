@@ -627,6 +627,16 @@ function Get-ReverseToolCatalog {
                 [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.dotnet\tools\ilspycmd.exe') }
             )
         }
+        [pscustomobject]@{
+            Name = 'rekit'
+            Skill = 'reverse-engineering'
+            Purpose = '快速静态预检 + 语义函数语料 + findings 登记（随 reverse-skill 分发）'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'rekit' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\rekit.cmd') }
+            )
+        }
     )
 }
 

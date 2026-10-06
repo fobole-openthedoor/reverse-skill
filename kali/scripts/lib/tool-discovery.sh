@@ -97,6 +97,7 @@ declare -a TOOL_CATALOG=(
     "lldb|asm-analysis|LLVM 调试器|--version|lldb"
     "dotnet-sdk|dotnet-reverse|.NET SDK（ilspycmd 前置）|--version|dotnet,${HOME}/.dotnet/dotnet"
     "ilspycmd|dotnet-reverse|.NET 程序集反编译 CLI|--version|ilspycmd,${HOME}/.dotnet/tools/ilspycmd"
+    "rekit|reverse-engineering|快速静态预检 + 语义函数语料 + findings 登记（随 reverse-skill 分发）|--version|rekit,${HOME}/.local/bin/rekit"
 )
 
 # 脚本引用映射
@@ -151,6 +152,7 @@ declare -A SCRIPT_REFS=(
     ["lldb"]="asm-analysis/SKILL.md"
     ["dotnet-sdk"]="dotnet-reverse/SKILL.md"
     ["ilspycmd"]="dotnet-reverse/SKILL.md"
+    ["rekit"]="ghidra-reverse/SKILL.md,binary-diff/SKILL.md"
 )
 
 # ─── 工具发现函数 ─────────────────────────────────────────────────────────────────

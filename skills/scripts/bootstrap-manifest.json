@@ -459,6 +459,14 @@
       "canAutoInstall": true,
       "verifyCommand": "ilspycmd",
       "note": "dotnet global tool. The version MUST stay pinned: an unpinned 'dotnet tool install -g ilspycmd' resolves to a broken package. Tools land in $HOME/.dotnet/tools (%USERPROFILE%\\.dotnet\\tools on Windows)."
+    },
+    {
+      "name": "rekit",
+      "bootstrapKind": "manual",
+      "docsUrl": "skills/tools/rekit/README.md",
+      "canAutoInstall": false,
+      "verifyCommand": "rekit",
+      "manualInstallHint": "rekit ships inside reverse-skill at skills/tools/rekit. Linux/macOS/Kali: bash skills/tools/rekit/install.sh (installs fastembed + ~/.local/bin shim). Windows: powershell -File skills/tools/rekit/install.ps1."
     }
   ]
 }

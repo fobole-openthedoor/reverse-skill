@@ -167,6 +167,11 @@ Step 2: 批量导出
   - 从旧版导出：锚点函数的反汇编 + 伪代码（含符号名）
   - 从新版导出：同一锚点函数的反汇编 + 伪代码（无符号名）
 
+Step 2.5: rekit match 预筛（可选但推荐）
+  - 跑 `rekit match <旧版> <新版> -k 50 --json`，产出带 confidence 的候选对
+  - HIGH / MEDIUM 可直接采纳或抽检；LOW / 无候选的函数才走 Step 3 的 LLM 逐函数比对
+  - confidence 规则：结构分不达标的候选不会给 HIGH（语义相似度不能单独把候选抬到 HIGH）
+
 Step 3: LLM 比对
   - 用 prompt 模板填充数据
   - 调用 LLM API（推荐：deepseek 量大便宜，超大函数切 gpt）
