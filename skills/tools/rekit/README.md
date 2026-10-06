@@ -2,7 +2,7 @@
 
 rekit 是随 reverse-skill 分发的 Python 工具(包代码在 `rekit/`,经 `python3 -m rekit` 调用),为 omp 逆向环境提供三件事:
 
-1. **ELF 快速预检(triage)** — numpy 向量化扫描 + sha256 缓存,大二进制/固件秒级出排序候选,不必先开 Ghidra/IDA 全量分析。
+1. **二进制快速预检(triage)** — ELF/PE 解析 + numpy 向量化扫描 + sha256 缓存,大二进制/固件秒级出排序候选,不必先开 Ghidra/IDA 全量分析。
 2. **语义函数语料(corpus)** — fastembed 嵌入函数特征,自然语言搜函数;`match` 做跨版本候选预筛,是 binary-diff 的前置。
 3. **findings registry** — SQLite 结构化发现登记,CWE 化条目可 confirm / export / import,与 field-journal 的叙事经验互补。
 
@@ -24,6 +24,18 @@ install 脚本:pip 安装 `fastembed==0.8.1`(可选依赖)→ 在 `~/.local/bin/
 
 - 必需:python3.10+、numpy、capstone、lief
 - 可选:fastembed — 缺失时 `corpus build/search/similar`、`match`、`findings similar` 不可用,其余子命令不受影响
+
+## 格式支持
+
+| 格式 | 架构 | 支持面 |
+|---|---|---|
+| ELF | x86-64 | 全量:PLT stub 反查、call graph(0xE8)、字符串 xref、endbr64/prologue 兜底 |
+| ELF | arm64 | 部分:符号+PLT 函数表、BL call graph、adrp/add 字符串 xref(capstone 配对) |
+| ELF | arm32 | 基础:符号函数表、字符串提取 |
+| PE | x86-64 | imports(IAT 槽充当 PLT,含 import thunk 归并)、.pdata 函数表、导出、call graph(0xE8 + `ff 15`)、字符串 xref |
+| Mach-O | — | 未支持 |
+
+其他 PE 机器类型(ARM64 等):仍可扫描(字符串 / IAT imports / 导出 / .pdata),`arch` 报 `unknown` 并打印 warning,不做反汇编与调用图。
 
 ## 子命令
 

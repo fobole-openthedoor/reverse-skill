@@ -8,15 +8,22 @@ from bisect import bisect_left, bisect_right
 
 import lief
 import lief.ELF as LE
+import lief.PE as LP
 import numpy as np
 from numpy.lib.stride_tricks import as_strided, sliding_window_view
 
-from .disasmx import linear_disasm
+from .disasmx import linear_disasm, make_cs
 
 CACHE_VERSION = 1
 FUNC_SIZE_CAP = 0x10000
 MIN_STRING_LEN = 4
+ARM64_XREF_MAX_INSNS = 2_000_000
+ARM64_XREF_WINDOW = 8
 _SHF_EXECINSTR = LE.Section.FLAGS.EXECINSTR.value
+_SCN_MEM_EXECUTE = LP.Section.CHARACTERISTICS.MEM_EXECUTE.value
+_SCN_MEM_READ = LP.Section.CHARACTERISTICS.MEM_READ.value
+
+CodeSec = tuple[bytes, int]
 
 
 class RekitError(Exception):
@@ -29,50 +36,6 @@ def _sha256_file(path: str) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def _arch_bits(b: LE.Binary) -> tuple[str, int]:
-    mt = b.header.machine_type
-    bits = 64 if b.header.identity_class == LE.Header.CLASS.ELF64 else 32
-    if mt == LE.ARCH.X86_64:
-        return "x86-64", 64
-    if mt == LE.ARCH.AARCH64:
-        return "arm64", 64
-    if mt == LE.ARCH.ARM:
-        return "arm32", 32
-    return "unknown", bits
-
-
-def _image_base(b: LE.Binary) -> int:
-    try:
-        return int(b.imagebase)
-    except Exception:
-        vas = [s.virtual_address for s in b.segments if s.type == LE.Segment.TYPE.LOAD]
-        return min(vas) if vas else 0
-
-
-def _load_map(b: LE.Binary) -> list[tuple[int, int, int]]:
-    out = []
-    for s in b.segments:
-        if s.type == LE.Segment.TYPE.LOAD and s.physical_size > 0:
-            va = int(s.virtual_address)
-            out.append((va, va + int(s.physical_size), int(s.file_offset)))
-    return out
-
-
-def _exec_ranges(b: LE.Binary) -> list[tuple[int, int]]:
-    return [
-        (int(s.virtual_address), int(s.virtual_address) + int(s.size))
-        for s in b.sections
-        if s.flags & _SHF_EXECINSTR and s.size > 0
-    ]
-
-
-def _text_sections(b: LE.Binary) -> list[LE.Section]:
-    secs = [s for s in b.sections if s.name == ".text"]
-    if not secs:
-        secs = [s for s in b.sections if s.flags & _SHF_EXECINSTR and s.size > 0]
-    return secs
 
 
 def _scan_ascii_runs(buf: np.ndarray, base_va: int, out: dict[int, str]) -> None:
@@ -89,6 +52,208 @@ def _scan_ascii_runs(buf: np.ndarray, base_va: int, out: dict[int, str]) -> None
         out[base_va + s] = bytes(buf[s:e]).decode("ascii")
 
 
+def _pattern_hits(arr: np.ndarray, pat: bytes) -> np.ndarray:
+    if arr.size < len(pat):
+        return np.empty(0, dtype=np.int64)
+    win = sliding_window_view(arr, len(pat))
+    return np.flatnonzero((win == np.frombuffer(pat, dtype=np.uint8)).all(axis=1))
+
+
+def _call_sites_x64(arr: np.ndarray, va: int) -> tuple[np.ndarray, np.ndarray]:
+    if arr.size < 5:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    win = sliding_window_view(arr, 5)
+    pos = np.flatnonzero(win[:, 0] == 0xE8)
+    disp = win[pos][:, 1:].copy().view("<i4").ravel().astype(np.int64)
+    sites = va + pos
+    return sites, sites + 5 + disp
+
+
+def _ff15_sites(arr: np.ndarray, va: int) -> tuple[np.ndarray, np.ndarray]:
+    if arr.size < 6:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    win = sliding_window_view(arr, 6)
+    pos = np.flatnonzero((win[:, 0] == 0xFF) & (win[:, 1] == 0x15))
+    disp = win[pos][:, 2:].copy().view("<i4").ravel().astype(np.int64)
+    sites = va + pos
+    return sites, sites + 6 + disp
+
+
+def _call_sites_arm64(arr: np.ndarray, va: int) -> tuple[np.ndarray, np.ndarray]:
+    n = arr.size // 4
+    if n == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    w = arr[: n * 4].view("<u4")
+    pos = np.flatnonzero((w & 0xFC000000) == 0x94000000)
+    imm = (w[pos] & 0x03FFFFFF).astype(np.int64)
+    imm = np.where(imm & 0x02000000, imm - (1 << 26), imm)
+    sites = va + 4 * pos
+    return sites, sites + (imm << 2)
+
+
+def _edges_from_sites(
+    sites: np.ndarray, targets: np.ndarray, vv: np.ndarray, fs: np.ndarray
+) -> list[tuple[int, int, int]]:
+    if sites.size == 0 or vv.size == 0 or fs.size == 0:
+        return []
+    idx = np.searchsorted(vv, targets)
+    hit = np.flatnonzero((idx < vv.size) & (vv[np.minimum(idx, vv.size - 1)] == targets))
+    sites, targets = sites[hit], targets[hit]
+    ci = np.searchsorted(fs, sites, side="right") - 1
+    keep = ci >= 0
+    callers = fs[ci[keep]]
+    return list(zip(callers.tolist(), targets[keep].tolist(), sites[keep].tolist()))
+
+
+def _remap_targets(targets: np.ndarray, remap: dict[int, int]) -> np.ndarray:
+    keys = np.fromiter(remap.keys(), dtype=np.int64)
+    vals = np.fromiter(remap.values(), dtype=np.int64)
+    idx = np.searchsorted(keys, targets)
+    m = (idx < keys.size) & (keys[np.minimum(idx, keys.size - 1)] == targets)
+    return np.where(m, vals[np.minimum(idx, keys.size - 1)], targets)
+
+
+def _call_edges(
+    secs: list[CodeSec],
+    arch: str,
+    func_starts: list[int],
+    valid: set[int],
+    iat_vas: set[int] | None = None,
+    remap: dict[int, int] | None = None,
+) -> list[tuple[int, int, int]]:
+    fs = np.asarray(func_starts, dtype=np.int64)
+    vv = np.asarray(sorted(valid), dtype=np.int64)
+    iv = np.asarray(sorted(iat_vas or ()), dtype=np.int64)
+    edges: list[tuple[int, int, int]] = []
+    if fs.size == 0 or vv.size == 0:
+        return edges
+    for code, va in secs:
+        arr = np.frombuffer(code, dtype=np.uint8)
+        if arch == "x86-64":
+            sites, targets = _call_sites_x64(arr, va)
+            if remap:
+                targets = _remap_targets(targets, remap)
+            edges.extend(_edges_from_sites(sites, targets, vv, fs))
+            if iv.size:
+                edges.extend(_edges_from_sites(*_ff15_sites(arr, va), iv, fs))
+        elif arch == "arm64":
+            edges.extend(_edges_from_sites(*_call_sites_arm64(arr, va), vv, fs))
+    return edges
+
+
+def _string_xrefs_x64(secs: list[CodeSec], strings: dict[int, str]) -> list[tuple[int, int]]:
+    if not strings:
+        return []
+    sva = np.asarray(sorted(strings), dtype=np.int64)
+    out: list[tuple[int, int]] = []
+    for code, va in secs:
+        arr = np.frombuffer(code, dtype=np.uint8)
+        n = arr.size - 3
+        if n <= 0:
+            continue
+        win = as_strided(arr, shape=(n, 4), strides=(arr.strides[0], arr.strides[0]))
+        disp = win.copy().view("<i4").ravel().astype(np.int64)
+        cand = va + np.arange(n, dtype=np.int64) + 4 + disp
+        idx = np.searchsorted(sva, cand)
+        hits = np.flatnonzero((idx < sva.size) & (sva[np.minimum(idx, sva.size - 1)] == cand))
+        out.extend(zip((va + hits).tolist(), sva[idx[hits]].tolist()))
+    return out
+
+
+def _string_xrefs_arm64(secs: list[CodeSec], strings: dict[int, str]) -> list[tuple[int, int]]:
+    if not strings:
+        return []
+    md = make_cs("arm64")
+    if md is None:
+        return []
+    sva = set(strings)
+    out: list[tuple[int, int]] = []
+    budget = ARM64_XREF_MAX_INSNS
+    for code, va in secs:
+        if budget <= 0:
+            break
+        pending: dict[str, tuple[int, int, int]] = {}
+        idx = 0
+        for insn in md.disasm(code, va):
+            idx += 1
+            if idx > budget:
+                break
+            mnem = insn.mnemonic
+            if mnem == "adrp":
+                parts = insn.op_str.split(",")
+                if len(parts) != 2:
+                    continue
+                try:
+                    page = int(parts[1].strip().lstrip("#"), 0)
+                except ValueError:
+                    continue
+                pending = {r: v for r, v in pending.items() if idx - v[2] <= ARM64_XREF_WINDOW}
+                pending[parts[0].strip()] = (page, insn.address, idx)
+            elif mnem == "add":
+                parts = insn.op_str.split(",")
+                if len(parts) != 3:
+                    continue
+                hit = pending.pop(parts[1].strip(), None)
+                if hit is None:
+                    continue
+                try:
+                    imm = int(parts[2].strip().lstrip("#"), 0)
+                except ValueError:
+                    continue
+                cand = hit[0] + imm
+                if cand in sva:
+                    out.append((hit[1], cand))
+        budget -= idx
+    return out
+
+
+# ---------------- ELF ----------------
+
+
+def _arch_bits_elf(b: LE.Binary) -> tuple[str, int]:
+    mt = b.header.machine_type
+    bits = 64 if b.header.identity_class == LE.Header.CLASS.ELF64 else 32
+    if mt == LE.ARCH.X86_64:
+        return "x86-64", 64
+    if mt == LE.ARCH.AARCH64:
+        return "arm64", 64
+    if mt == LE.ARCH.ARM:
+        return "arm32", 32
+    return "unknown", bits
+
+
+def _image_base_elf(b: LE.Binary) -> int:
+    try:
+        return int(b.imagebase)
+    except Exception:
+        vas = [s.virtual_address for s in b.segments if s.type == LE.Segment.TYPE.LOAD]
+        return min(vas) if vas else 0
+
+
+def _load_map_elf(b: LE.Binary) -> list[tuple[int, int, int]]:
+    out = []
+    for s in b.segments:
+        if s.type == LE.Segment.TYPE.LOAD and s.physical_size > 0:
+            va = int(s.virtual_address)
+            out.append((va, va + int(s.physical_size), int(s.file_offset)))
+    return out
+
+
+def _exec_ranges_elf(b: LE.Binary) -> list[tuple[int, int]]:
+    return [
+        (int(s.virtual_address), int(s.virtual_address) + int(s.size))
+        for s in b.sections
+        if s.flags & _SHF_EXECINSTR and s.size > 0
+    ]
+
+
+def _elf_text_secs(b: LE.Binary) -> list[CodeSec]:
+    secs = [s for s in b.sections if s.name == ".text"]
+    if not secs:
+        secs = [s for s in b.sections if s.flags & _SHF_EXECINSTR and s.size > 0]
+    return [(bytes(s.content), int(s.virtual_address)) for s in secs if s.size > 0]
+
+
 def _seg_readable_nonexec(seg: LE.Segment) -> bool:
     try:
         return bool(seg.has(LE.Segment.FLAGS.R)) and not bool(seg.has(LE.Segment.FLAGS.X))
@@ -97,7 +262,7 @@ def _seg_readable_nonexec(seg: LE.Segment) -> bool:
         return bool(fl & 0x4) and not bool(fl & 0x1)
 
 
-def _extract_strings(b: LE.Binary) -> dict[int, str]:
+def _extract_strings_elf(b: LE.Binary) -> dict[int, str]:
     out: dict[int, str] = {}
     rodatas = [s for s in b.sections if s.name == ".rodata" or s.name.startswith(".rodata.")]
     if rodatas:
@@ -171,14 +336,9 @@ def _plt_stubs_arm64(b: LE.Binary, got: dict[int, str]) -> dict[str, int]:
     return plt
 
 
-def _pattern_hits(arr: np.ndarray, pat: bytes) -> np.ndarray:
-    if arr.size < len(pat):
-        return np.empty(0, dtype=np.int64)
-    win = sliding_window_view(arr, len(pat))
-    return np.flatnonzero((win == np.frombuffer(pat, dtype=np.uint8)).all(axis=1))
-
-
-def _func_starts(b: LE.Binary, arch: str, plt: dict[str, int]) -> tuple[list[int], dict[int, str]]:
+def _elf_func_starts(
+    b: LE.Binary, arch: str, plt: dict[str, int], text_secs: list[CodeSec]
+) -> tuple[list[int], dict[int, str]]:
     starts: set[int] = set()
     names: dict[int, str] = {}
     for sym in b.dynamic_symbols:
@@ -200,9 +360,8 @@ def _func_starts(b: LE.Binary, arch: str, plt: dict[str, int]) -> tuple[list[int
         starts.add(va)
         names[va] = name
     if arch == "x86-64":
-        for sec in _text_sections(b):
-            arr = np.frombuffer(bytes(sec.content), dtype=np.uint8)
-            va = int(sec.virtual_address)
+        for code, va in text_secs:
+            arr = np.frombuffer(code, dtype=np.uint8)
             for pat in (b"\xf3\x0f\x1e\xfa", b"\x55\x48\x89\xe5"):
                 for off in _pattern_hits(arr, pat).tolist():
                     starts.add(va + off)
@@ -210,7 +369,7 @@ def _func_starts(b: LE.Binary, arch: str, plt: dict[str, int]) -> tuple[list[int
     return sorted(starts), names
 
 
-def _exports(b: LE.Binary) -> dict[str, int]:
+def _exports_elf(b: LE.Binary) -> dict[str, int]:
     out: dict[str, int] = {}
     for sym in b.dynamic_symbols:
         if sym.name and sym.exported and sym.value:
@@ -218,83 +377,8 @@ def _exports(b: LE.Binary) -> dict[str, int]:
     return out
 
 
-def _call_sites_x64(arr: np.ndarray, va: int) -> tuple[np.ndarray, np.ndarray]:
-    if arr.size < 5:
-        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
-    win = sliding_window_view(arr, 5)
-    pos = np.flatnonzero(win[:, 0] == 0xE8)
-    disp = win[pos][:, 1:].copy().view("<i4").ravel().astype(np.int64)
-    sites = va + pos
-    return sites, sites + 5 + disp
-
-
-def _call_sites_arm64(arr: np.ndarray, va: int) -> tuple[np.ndarray, np.ndarray]:
-    n = arr.size // 4
-    if n == 0:
-        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
-    w = arr[: n * 4].view("<u4")
-    pos = np.flatnonzero((w & 0xFC000000) == 0x94000000)
-    imm = (w[pos] & 0x03FFFFFF).astype(np.int64)
-    imm = np.where(imm & 0x02000000, imm - (1 << 26), imm)
-    sites = va + 4 * pos
-    return sites, sites + (imm << 2)
-
-
-def _call_edges(b: LE.Binary, arch: str, func_starts: list[int], valid: set[int]) -> list[tuple[int, int, int]]:
-    fs = np.asarray(func_starts, dtype=np.int64)
-    vv = np.asarray(sorted(valid), dtype=np.int64)
-    edges: list[tuple[int, int, int]] = []
-    if fs.size == 0 or vv.size == 0:
-        return edges
-    for sec in _text_sections(b):
-        arr = np.frombuffer(bytes(sec.content), dtype=np.uint8)
-        va = int(sec.virtual_address)
-        if arch == "x86-64":
-            sites, targets = _call_sites_x64(arr, va)
-        elif arch == "arm64":
-            sites, targets = _call_sites_arm64(arr, va)
-        else:
-            continue
-        if sites.size == 0:
-            continue
-        idx = np.searchsorted(vv, targets)
-        hit = np.flatnonzero((idx < vv.size) & (vv[np.minimum(idx, vv.size - 1)] == targets))
-        sites, targets = sites[hit], targets[hit]
-        ci = np.searchsorted(fs, sites, side="right") - 1
-        keep = ci >= 0
-        callers = fs[ci[keep]]
-        edges.extend(zip(callers.tolist(), targets[keep].tolist(), sites[keep].tolist()))
-    return edges
-
-
-def _string_xrefs(b: LE.Binary, arch: str, strings: dict[int, str]) -> list[tuple[int, int]]:
-    if arch != "x86-64" or not strings:
-        return []
-    sva = np.asarray(sorted(strings), dtype=np.int64)
-    out: list[tuple[int, int]] = []
-    for sec in _text_sections(b):
-        arr = np.frombuffer(bytes(sec.content), dtype=np.uint8)
-        n = arr.size - 3
-        if n <= 0:
-            continue
-        win = as_strided(arr, shape=(n, 4), strides=(arr.strides[0], arr.strides[0]))
-        disp = win.copy().view("<i4").ravel().astype(np.int64)
-        va = int(sec.virtual_address)
-        cand = va + np.arange(n, dtype=np.int64) + 4 + disp
-        idx = np.searchsorted(sva, cand)
-        hits = np.flatnonzero((idx < sva.size) & (sva[np.minimum(idx, sva.size - 1)] == cand))
-        out.extend(zip((va + hits).tolist(), sva[idx[hits]].tolist()))
-    return out
-
-
-def _extract(path: str, digest: str) -> dict:
-    try:
-        b = lief.parse(path)
-    except Exception as e:
-        raise RekitError(f"lief failed to parse {path}: {e}") from e
-    if b is None or not isinstance(b, LE.Binary):
-        raise RekitError(f"{path}: not an ELF binary")
-    arch, bits = _arch_bits(b)
+def _extract_elf(b: LE.Binary, digest: str) -> dict:
+    arch, bits = _arch_bits_elf(b)
     got = _got_map(b)
     if arch == "x86-64":
         plt = _plt_stubs_x64(b, got)
@@ -302,18 +386,25 @@ def _extract(path: str, digest: str) -> dict:
         plt = _plt_stubs_arm64(b, got)
     else:
         plt = {}
-    func_starts, names = _func_starts(b, arch, plt)
-    exports = _exports(b)
-    strings = _extract_strings(b)
+    text_secs = _elf_text_secs(b)
+    func_starts, names = _elf_func_starts(b, arch, plt, text_secs)
+    exports = _exports_elf(b)
+    strings = _extract_strings_elf(b)
     valid = set(func_starts) | set(plt.values()) | set(exports.values())
-    call_edges = _call_edges(b, arch, func_starts, valid)
-    string_xrefs = _string_xrefs(b, arch, strings)
+    call_edges = _call_edges(text_secs, arch, func_starts, valid)
+    if arch == "x86-64":
+        string_xrefs = _string_xrefs_x64(text_secs, strings)
+    elif arch == "arm64":
+        string_xrefs = _string_xrefs_arm64(text_secs, strings)
+    else:
+        string_xrefs = []
     return {
         "version": CACHE_VERSION,
+        "format": "elf",
         "sha256": digest,
         "arch": arch,
         "bits": bits,
-        "image_base": _image_base(b),
+        "image_base": _image_base_elf(b),
         "entry": int(b.entrypoint),
         "plt": plt,
         "exports": exports,
@@ -322,9 +413,203 @@ def _extract(path: str, digest: str) -> dict:
         "names": {str(k): v for k, v in names.items()},
         "call_edges": call_edges,
         "string_xrefs": string_xrefs,
-        "load_map": _load_map(b),
-        "exec_ranges": _exec_ranges(b),
+        "load_map": _load_map_elf(b),
+        "exec_ranges": _exec_ranges_elf(b),
     }
+
+
+# ---------------- PE ----------------
+
+
+def _pe_text_secs(b: LP.Binary, ib: int) -> list[CodeSec]:
+    secs = [s for s in b.sections if s.name == ".text"]
+    if not secs:
+        secs = [s for s in b.sections if int(s.characteristics) & _SCN_MEM_EXECUTE]
+    return [
+        (bytes(s.content), ib + int(s.virtual_address)) for s in secs if int(s.sizeof_raw_data) > 0
+    ]
+
+
+def _pe_load_map(b: LP.Binary, ib: int) -> list[tuple[int, int, int]]:
+    out = []
+    for s in b.sections:
+        raw = int(s.sizeof_raw_data)
+        if raw <= 0:
+            continue
+        va = ib + int(s.virtual_address)
+        out.append((va, va + raw, int(s.pointerto_raw_data)))
+    return out
+
+
+def _pe_exec_ranges(b: LP.Binary, ib: int) -> list[tuple[int, int]]:
+    out = []
+    for s in b.sections:
+        if int(s.characteristics) & _SCN_MEM_EXECUTE:
+            va = ib + int(s.virtual_address)
+            out.append((va, va + max(int(s.virtual_size), int(s.sizeof_raw_data))))
+    return out
+
+
+def _extract_strings_pe(b: LP.Binary, ib: int) -> dict[int, str]:
+    out: dict[int, str] = {}
+    rdatas = [s for s in b.sections if s.name == ".rdata" or s.name.startswith(".rdata$")]
+    if rdatas:
+        for s in rdatas:
+            _scan_ascii_runs(
+                np.frombuffer(bytes(s.content), dtype=np.uint8), ib + int(s.virtual_address), out
+            )
+    else:
+        for s in b.sections:
+            ch = int(s.characteristics)
+            if ch & _SCN_MEM_READ and not ch & _SCN_MEM_EXECUTE and int(s.sizeof_raw_data) > 0:
+                _scan_ascii_runs(
+                    np.frombuffer(bytes(s.content), dtype=np.uint8), ib + int(s.virtual_address), out
+                )
+    return out
+
+
+def _pe_imports(b: LP.Binary, ib: int) -> dict[str, int]:
+    plt: dict[str, int] = {}
+    for imp in b.imports:
+        for e in imp.entries:
+            if e.name:
+                plt.setdefault(e.name, ib + int(e.iat_address))
+    return plt
+
+
+def _pe_exports(b: LP.Binary, ib: int) -> dict[str, int]:
+    out: dict[str, int] = {}
+    try:
+        exp = b.get_export()
+    except Exception:
+        exp = None
+    if exp is not None:
+        for e in exp.entries:
+            if e.name:
+                out[e.name] = ib + int(e.function_rva)
+    return out
+
+
+def _pe_pdata_begins(b: LP.Binary, ib: int) -> list[int]:
+    sec = b.get_section(".pdata")
+    if sec is None:
+        return []
+    data = bytes(sec.content)
+    n = len(data) // 12
+    if n == 0:
+        return []
+    w = np.frombuffer(data[: n * 12], dtype="<u4").reshape(n, 3).astype(np.int64)
+    return [ib + r for r in w[:, 0].tolist() if r > 0]
+
+
+def _pe_func_starts(
+    b: LP.Binary, ib: int, plt: dict[str, int], exports: dict[str, int], arch: str, text_secs: list[CodeSec]
+) -> tuple[list[int], dict[int, str]]:
+    starts: set[int] = set(_pe_pdata_begins(b, ib))
+    names: dict[int, str] = {}
+    for name, va in exports.items():
+        starts.add(va)
+        names.setdefault(va, name)
+    secs = list(b.sections)
+    try:
+        for s in b.symbols:
+            idx = int(s.section_idx)
+            if s.is_function and s.name and 1 <= idx <= len(secs):
+                va = ib + int(secs[idx - 1].virtual_address) + int(s.value)
+                starts.add(va)
+                names[va] = s.name
+    except Exception:
+        pass
+    for name, va in plt.items():
+        starts.add(va)
+        names.setdefault(va, name)
+    if arch == "x86-64":
+        auth = sorted(starts)
+        extra: set[int] = set()
+        for code, va in text_secs:
+            arr = np.frombuffer(code, dtype=np.uint8)
+            for pat in (b"\x48\x89\x5c\x24", b"\x40\x53", b"\x55\x48\x89\xe5", b"\x48\x83\xec"):
+                for off in _pattern_hits(arr, pat).tolist():
+                    extra.add(va + off)
+        for x in sorted(extra):
+            i = bisect_right(auth, x) - 1
+            if i >= 0 and 0 < x - auth[i] <= 0x10:
+                continue
+            starts.add(x)
+    starts.discard(0)
+    starts.discard(ib)
+    return sorted(starts), names
+
+
+def _pe_iat_thunks(text_secs: list[CodeSec], iat_vas: set[int]) -> dict[int, int]:
+    out: dict[int, int] = {}
+    if not iat_vas:
+        return out
+    for code, va in text_secs:
+        arr = np.frombuffer(code, dtype=np.uint8)
+        if arr.size < 6:
+            continue
+        for pos in np.flatnonzero((arr[:-1] == 0xFF) & (arr[1:] == 0x25)).tolist():
+            if pos + 6 > arr.size:
+                continue
+            disp = int.from_bytes(code[pos + 2 : pos + 6], "little", signed=True)
+            slot = va + pos + 6 + disp
+            if slot in iat_vas:
+                out[va + pos] = slot
+    return out
+
+
+def _extract_pe(b: LP.Binary, digest: str) -> dict:
+    ib = int(b.optional_header.imagebase)
+    machine = b.header.machine
+    if machine == LP.Header.MACHINE_TYPES.AMD64:
+        arch, bits = "x86-64", 64
+    else:
+        arch = "unknown"
+        try:
+            bits = 64 if b.optional_header.magic == LP.PE_TYPE.PE32_PLUS else 32
+        except Exception:
+            bits = 64 if ib > 0xFFFFFFFF else 32
+        print(f"rekit: warning: unsupported PE machine {machine}, limited analysis", file=sys.stderr)
+    text_secs = _pe_text_secs(b, ib)
+    plt = _pe_imports(b, ib)
+    exports = _pe_exports(b, ib)
+    strings = _extract_strings_pe(b, ib)
+    func_starts, names = _pe_func_starts(b, ib, plt, exports, arch, text_secs)
+    valid = set(func_starts) | set(plt.values()) | set(exports.values())
+    thunks = _pe_iat_thunks(text_secs, set(plt.values())) if arch == "x86-64" else {}
+    call_edges = _call_edges(text_secs, arch, func_starts, valid, set(plt.values()), thunks)
+    string_xrefs = _string_xrefs_x64(text_secs, strings) if arch == "x86-64" else []
+    return {
+        "version": CACHE_VERSION,
+        "format": "pe",
+        "sha256": digest,
+        "arch": arch,
+        "bits": bits,
+        "image_base": ib,
+        "entry": int(b.entrypoint),
+        "plt": plt,
+        "exports": exports,
+        "strings": {str(k): v for k, v in sorted(strings.items())},
+        "func_starts": func_starts,
+        "names": {str(k): v for k, v in names.items()},
+        "call_edges": call_edges,
+        "string_xrefs": string_xrefs,
+        "load_map": _pe_load_map(b, ib),
+        "exec_ranges": _pe_exec_ranges(b, ib),
+    }
+
+
+def _extract(path: str, digest: str) -> dict:
+    try:
+        b = lief.parse(path)
+    except Exception as e:
+        raise RekitError(f"lief failed to parse {path}: {e}") from e
+    if isinstance(b, LE.Binary):
+        return _extract_elf(b, digest)
+    if isinstance(b, LP.Binary):
+        return _extract_pe(b, digest)
+    raise RekitError(f"{path}: not an ELF/PE binary")
 
 
 class BinaryContext:
@@ -332,6 +617,7 @@ class BinaryContext:
         self.path = path
         self.sha256 = data["sha256"]
         self.key = self.sha256[:16]
+        self.format = data.get("format", "elf")
         self.arch = data["arch"]
         self.bits = data["bits"]
         self.image_base = data["image_base"]
