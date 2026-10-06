@@ -286,7 +286,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_triage)
 
-    for modname in ("corpus", "findings"):
+    for modname in ("corpus", "findings", "crypto"):
         try:
             mod = importlib.import_module(f".{modname}", __package__)
             mod.register(sub)

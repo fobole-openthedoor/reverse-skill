@@ -57,6 +57,8 @@ install 脚本:pip 安装 `fastembed==0.8.1`(可选依赖)→ 在 `~/.local/bin/
 | `rekit findings confirm / unconfirm` | 确认状态流转 |
 | `rekit findings search / similar` | 关键词 / 语义检索已有发现 |
 | `rekit findings export / import` | 导出 / 导入(团队协作、跨机迁移) |
+| `rekit crypto entropy <file>` | 滑窗 Shannon 熵图,定位高熵(加密/压缩)区域 |
+| `rekit crypto xor <file>` | 重复密钥 XOR 恢复:keylen 猜测 / 列频率攻击 / 已知明文(crib)攻击 |
 
 多数子命令支持 `--json`,供脚本与 agent 消费。
 
@@ -78,6 +80,30 @@ binary-diff 前先机器预筛,省下 LLM 逐函数比对:
 rekit match old.so new.so -k 50 --json
 # HIGH/MEDIUM 直接采纳或抽检;LOW/无候选的函数才走 LLM 比对
 ```
+
+## crypto 小套件
+
+固件 XOR 解密(cortex-m 自钥 XOR、FortiOS 升级包这类场景)的两步工作流:
+
+```bash
+# 1. 熵图定位高熵区(加密段熵 >= 7.2,明文/代码段远低于此)
+rekit crypto entropy firmware.bin
+#    → regions: 0x00012000-0x0008f000  peak 7.61
+
+# 2a. 已知明文(魔数/固件头)恢复密钥 — crib 滑窗 + IoC 排名,对机器码明文同样稳健
+rekit crypto xor firmware.bin --offset 0x12000 --magic 7f454c46
+#    → #1 offset=0x0 keylen=16 ioc=0.0812 key=...
+
+# 2b. 无已知明文:keylen Hamming 猜测 + 列频率攻击(面向文本/配置类明文)
+rekit crypto xor firmware.bin --offset 0x12000 --size 0x10000
+
+# 3. 用最优候选密钥导出解密区域(打印 sha256 供校验)
+rekit crypto xor firmware.bin --offset 0x12000 --magic 7f454c46 --out fw.dec
+```
+
+- `--offset`/`--size` 支持 `0x` 前缀;`--magic`(hex)/`--magic-str`/`--crib` 三选一
+- crib 候选按 IoC(重合指数)排名:真 key 还原明文结构,IoC 显著高于噪声;不受明文字节分布(文本 / 机器码 / 零填充)影响
+- 无 crib 的列频率攻击依赖明文可打印性,机器码密集区域请走 crib 模式
 
 ## 缓存与数据
 
