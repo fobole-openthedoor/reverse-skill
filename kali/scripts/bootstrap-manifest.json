@@ -685,6 +685,15 @@
       "canAutoInstall": true,
       "verifyCommand": "ilspycmd",
       "kaliNote": "dotnet tool install -g ilspycmd --version 9.1.0.7988。版本必须 pin：不指定版本会装到坏包。"
+    },
+    {
+      "name": "rekit",
+      "bootstrapKind": "manual",
+      "docsUrl": "skills/tools/rekit/README.md",
+      "canAutoInstall": false,
+      "verifyCommand": "rekit",
+      "manualInstallHint": "rekit ships inside reverse-skill at skills/tools/rekit. Linux/macOS/Kali: bash skills/tools/rekit/install.sh (installs fastembed + ~/.local/bin shim). Windows: powershell -File skills/tools/rekit/install.ps1.",
+      "kaliNote": "仓库自带，跑 skills/tools/rekit/install.sh 即可（装 fastembed 并写 ~/.local/bin shim）。"
     }
   ]
 }

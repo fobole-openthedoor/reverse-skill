@@ -129,3 +129,25 @@ Promotion to status=validated is stricter (decision cookbook):
 | blocked promotion | record Evidence E-insufficient-evidence |
 
 Full recipes: [nalysis-decision-framework.md](analysis-decision-framework.md) (R4*, R1, R41, R44).
+
+## Weighted evidence scoring (confirmation rubric)
+
+判定 Finding 的 `confidence` 与是否达到确认线时，按证据 family 加权，禁止"一条强证据定终身"，也禁止同族证据堆数量：
+
+| family | 典型 Evidence | weight |
+|--------|---------------|--------|
+| behavioral | 调试器/Frida/trace 的运行时观察 | 1.0 |
+| data_flow | 污点路径、切片、符号执行可达性 | 0.9 |
+| structural | 反汇编/伪代码、CFG、调用关系核实 | 0.75 |
+| constant_sig | 魔数/常量/字节签名匹配 | 0.6 |
+| semantic | 嵌入相似、命名/角色推断（含 `rekit corpus`/`match` 结果） | 0.25 |
+
+规则：
+
+- 同 family 第 n 条证据按 `1/(1+ln n)` 折减，防重复计数；
+- **确认线**（`confidence: high` / `rekit findings confirm` 前置条件）：综合分 ≥0.75，**且**至少 1 条 behavioral 或 data_flow 强族证据，**且**覆盖 ≥2 个不同 family，**且**反证合计 <0.2；
+- 任一 family 反证 ≥0.8 → 直接驳回（标 `false_positive` 或回退 candidate），不得用支持证据对冲；
+- semantic family **永远不能单独**支撑确认——相似度高不等于语义等价（与 `rekit match` 的"结构分不达标不给 HIGH"同源）；
+- 达不到确认线但方向正确 → 保持 candidate，记录 residual_risk 与缺口（缺哪个 family 的证据）。
+
+与上方 "Validated sufficiency" 的关系：该节是 Evidence **条数**硬规则，本节是 **质量/多样性**标尺，两者同时满足才可 validated。
