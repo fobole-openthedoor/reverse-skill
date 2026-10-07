@@ -31,7 +31,7 @@ for arg in "$@"; do
         --skip-refresh) SKIP_REFRESH=true ;;
         --list|-l)
             echo "jadx apktool jeb-pro frida frida-ps idalib-mcp jshookmcp reqable-mcp xquik-mcp anything-analyzer idapro r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp nmap pentestswarm pwntools bkcrack"
-            echo "angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd"
+            echo "angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd gitleaks subfinder prowler"
             echo "mcp-kali-server metasploitmcp hexstrike-ai adaptixc2 atomic-operator sstimap xsstrike wpprobe fluxion gef coercer evil-winrm-py netexec responder bloodhound certipy"
             exit 0
             ;;
@@ -65,7 +65,7 @@ if [[ ${#CAPABILITIES[@]} -eq 0 ]]; then
     echo "    bkcrack"
     echo ""
     echo "  [其他]"
-    echo "    ghidra-mcp seclists proxycat burpsuite-mcp unblob semgrep"
+    echo "    ghidra-mcp seclists proxycat burpsuite-mcp unblob semgrep gitleaks subfinder prowler"
     echo ""
     echo "示例:"
     echo "  $0 mcp-kali-server metasploitmcp hexstrike-ai pentestswarm  # 全部渗透 MCP"
@@ -280,16 +280,22 @@ install_github_release() {
     # 根据文件类型解压
     case "$filename" in
         *.tar.gz|*.tgz)
-            tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null \
-                || tar -xzf "$tmp_file" -C "$install_dir"
+            # 仅当归档内容确实住在单一顶层目录下才 strip 一层；平铺归档
+            # （如 gitleaks 的 linux tar.gz）直接解，否则 strip 会丢光所有文件且 tar 仍返回 0
+            if [[ "$(tar -tzf "$tmp_file" | head -n1)" == */* ]]; then
+                tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1
+            else
+                tar -xzf "$tmp_file" -C "$install_dir"
+            fi
             ;;
         *.zip)
             tmp_extract=$(mktemp -d /tmp/reverse-bootstrap-extract.XXXXXX)
             unzip -qo "$tmp_file" -d "$tmp_extract"
-            # 如果只有一个顶层目录，strip 它
+            # 如果只有一个顶层目录，strip 它；没有目录（如 subfinder 单二进制 zip）走平铺拷贝，
+            # 空 find 结果不能进 strip 分支（否则 cp -a "/." 会尝试拷贝整个根文件系统）
             local top_dirs
             top_dirs=$(find "$tmp_extract" -maxdepth 1 -mindepth 1 -type d)
-            if [[ $(printf '%s\n' "$top_dirs" | wc -l) -eq 1 ]]; then
+            if [[ -n "$top_dirs" ]] && [[ $(printf '%s\n' "$top_dirs" | wc -l) -eq 1 ]]; then
                 cp -a "$top_dirs"/. "$install_dir/"
             else
                 cp -a "$tmp_extract"/. "$install_dir/"
@@ -608,6 +614,9 @@ EOF
         semgrep)
             install_pipx_cli "semgrep==1.178.0"
             ;;
+        prowler)
+            install_pipx_cli "prowler==5.44.0"
+            ;;
 
         lldb)
             install_apt_package "lldb"
@@ -666,6 +675,16 @@ EOF
             else
                 install_github_release "projectdiscovery/nuclei" "^nuclei_.*_linux_amd64\\.zip$" "$HOME/tools/nuclei" "v3.8.0"
             fi
+            ;;
+        gitleaks)
+            # 平铺 tar.gz（无顶层目录），sha256 pin 自 v8.30.1 已验证资产
+            install_github_release "gitleaks/gitleaks" "^gitleaks_8\\.30\\.1_linux_x64\\.tar\\.gz$" "$HOME/tools/gitleaks" "v8.30.1" \
+                "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+            ;;
+        subfinder)
+            # zip 内仅单个 subfinder 二进制，sha256 pin 自 v2.16.0 已验证资产
+            install_github_release "projectdiscovery/subfinder" "^subfinder_2\\.16\\.0_linux_amd64\\.zip$" "$HOME/tools/subfinder" "v2.16.0" \
+                "1b7f9c608e9a5bd59e609a5e09710d63c5485e92d3d49dc2c16eb4fdbe10cb60"
             ;;
 
         # ─── npm/MCP ───

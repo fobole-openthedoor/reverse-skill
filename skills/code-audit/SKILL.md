@@ -35,6 +35,9 @@ description: Use for authorized source-code security review and SAST workflows i
 semgrep --config auto .
 # 或项目规则包
 semgrep --config p/owasp-top-ten .
+# 硬编码密钥维度（危险 API 审计之外）：git 历史 + 工作区的密钥/token/口令
+gitleaks git <repo>   # 含提交历史
+gitleaks dir <path>   # 仅文件内容
 ```
 
 ### 3. 人工验证（MUST）
@@ -58,6 +61,7 @@ Finding：位置 + 数据流 + PoC + 修复建议
 | 工具 | 语言/场景 |
 |------|-----------|
 | Semgrep | 多语言快速规则 |
+| gitleaks | 硬编码密钥/token（git 历史与工作区） |
 | CodeQL | 深数据流（GitHub） |
 | Bandit | Python |
 | gosec / staticcheck | Go |

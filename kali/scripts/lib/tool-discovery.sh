@@ -98,6 +98,9 @@ declare -a TOOL_CATALOG=(
     "dotnet-sdk|dotnet-reverse|.NET SDK（ilspycmd 前置）|--version|dotnet,${HOME}/.dotnet/dotnet"
     "ilspycmd|dotnet-reverse|.NET 程序集反编译 CLI|--version|ilspycmd,${HOME}/.dotnet/tools/ilspycmd"
     "rekit|reverse-engineering|快速静态预检 + 语义函数语料 + findings 登记（随 reverse-skill 分发）|--version|rekit,${HOME}/.local/bin/rekit"
+    "gitleaks|code-audit|Git 仓库密钥扫描（API key/token/口令）|version|gitleaks,${HOME}/tools/gitleaks/gitleaks"
+    "subfinder|pentest-tools|被动子域名枚举（外部攻击面发现）|-version|subfinder,${HOME}/tools/subfinder/subfinder"
+    "prowler|cloud-k8s|云配置基准扫描（AWS/Azure/GCP）|--version|prowler,${HOME}/.local/bin/prowler"
 )
 
 # 脚本引用映射
@@ -153,6 +156,9 @@ declare -A SCRIPT_REFS=(
     ["dotnet-sdk"]="dotnet-reverse/SKILL.md"
     ["ilspycmd"]="dotnet-reverse/SKILL.md"
     ["rekit"]="ghidra-reverse/SKILL.md,binary-diff/SKILL.md"
+    ["gitleaks"]="code-audit/SKILL.md"
+    ["subfinder"]="pentest-tools/SKILL.md"
+    ["prowler"]="cloud-k8s/SKILL.md"
 )
 
 # ─── 工具发现函数 ─────────────────────────────────────────────────────────────────

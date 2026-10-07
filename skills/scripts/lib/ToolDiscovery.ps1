@@ -637,6 +637,36 @@ function Get-ReverseToolCatalog {
                 [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\rekit.cmd') }
             )
         }
+        [pscustomobject]@{
+            Name = 'gitleaks'
+            Skill = 'code-audit'
+            Purpose = 'Git 仓库密钥扫描（API key/token/口令）'
+            VersionArgs = @('version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'gitleaks' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile 'Tools\gitleaks\gitleaks.exe') }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'subfinder'
+            Skill = 'pentest-tools'
+            Purpose = '被动子域名枚举（外部攻击面发现）'
+            VersionArgs = @('-version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'subfinder' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile 'Tools\subfinder\subfinder.exe') }
+            )
+        }
+        [pscustomobject]@{
+            Name = 'prowler'
+            Skill = 'cloud-k8s'
+            Purpose = '云配置基准扫描（AWS/Azure/GCP）'
+            VersionArgs = @('--version')
+            Fallbacks = @(
+                [pscustomobject]@{ Type = 'command'; Value = 'prowler' },
+                [pscustomobject]@{ Type = 'path'; Value = (Join-Path $userProfile '.local\bin\prowler.exe') }
+            )
+        }
     )
 }
 

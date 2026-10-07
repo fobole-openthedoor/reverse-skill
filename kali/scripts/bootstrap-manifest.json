@@ -694,6 +694,42 @@
       "verifyCommand": "rekit",
       "manualInstallHint": "rekit ships inside reverse-skill at skills/tools/rekit. Linux/macOS/Kali: bash skills/tools/rekit/install.sh (installs fastembed + ~/.local/bin shim). Windows: powershell -File skills/tools/rekit/install.ps1.",
       "kaliNote": "仓库自带，跑 skills/tools/rekit/install.sh 即可（装 fastembed 并写 ~/.local/bin shim）。"
+    },
+    {
+      "name": "gitleaks",
+      "bootstrapKind": "github-release-tar",
+      "repo": "gitleaks/gitleaks",
+      "assetRegex": "^gitleaks_8\\.30\\.1_linux_x64\\.tar\\.gz$",
+      "installDir": "$HOME/tools/gitleaks",
+      "docsUrl": "https://github.com/gitleaks/gitleaks",
+      "canAutoInstall": true,
+      "verifyCommand": "gitleaks",
+      "releaseTag": "v8.30.1",
+      "assetSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "kaliNote": "Git 仓库密钥扫描；GitHub Release 下载 linux_x64 tar.gz（平铺归档，无顶层目录）。"
+    },
+    {
+      "name": "subfinder",
+      "bootstrapKind": "github-release-tar",
+      "repo": "projectdiscovery/subfinder",
+      "assetRegex": "^subfinder_2\\.16\\.0_linux_amd64\\.zip$",
+      "installDir": "$HOME/tools/subfinder",
+      "docsUrl": "https://github.com/projectdiscovery/subfinder",
+      "canAutoInstall": true,
+      "verifyCommand": "subfinder",
+      "releaseTag": "v2.16.0",
+      "assetSha256": "1b7f9c608e9a5bd59e609a5e09710d63c5485e92d3d49dc2c16eb4fdbe10cb60",
+      "kaliNote": "被动子域名枚举；GitHub Release 下载 linux_amd64 zip（仅含单个二进制）。"
+    },
+    {
+      "name": "prowler",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "prowler==5.44.0",
+      "pinnedVersion": "5.44.0",
+      "docsUrl": "https://github.com/prowler-cloud/prowler",
+      "canAutoInstall": true,
+      "verifyCommand": "prowler",
+      "kaliNote": "云配置基准扫描（AWS/Azure/GCP），pipx 安装。"
     }
   ]
 }

@@ -185,6 +185,7 @@ Capabilities (parity with bootstrap-reverse.ps1):
   r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp
   nmap pentestswarm binwalk yara pwntools
   angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd
+  gitleaks subfinder prowler
 
 Examples:
   bash skills/scripts/bootstrap-reverse.sh jadx apktool frida
@@ -207,6 +208,7 @@ ALL_CAPABILITIES=(
   r2 rabin2 adb agent-browser ghidra-mcp seclists proxycat burpsuite-mcp
   nmap pentestswarm binwalk yara pwntools
   angr keystone-engine lief pefile unblob ropper semgrep lldb dotnet-sdk ilspycmd
+  gitleaks subfinder prowler
 )
 
 if $LIST_ONLY; then
@@ -1044,6 +1046,44 @@ ensure_pipx_cli() {
 ensure_unblob() { ensure_pipx_cli unblob unblob; }
 ensure_ropper() { ensure_pipx_cli ropper ropper; }
 ensure_semgrep() { ensure_pipx_cli semgrep semgrep; }
+ensure_prowler() { ensure_pipx_cli prowler prowler; }
+
+# Single-binary GitHub release tools. The manifest's assetRegex covers the Windows
+# asset for the ps1 flow, so the Linux asset regex is derived from the manifest's
+# releaseTag here and the linux archive hash is pinned alongside (bump both together).
+ensure_gitleaks() {
+  if has_cmd gitleaks; then log_ok "gitleaks ready: $(cmd_path gitleaks)"; return 0; fi
+  case "$PLATFORM" in
+    macos) install_brew gitleaks ;;
+    linux)
+      local tag ver re
+      tag=$(manifest_field gitleaks releaseTag) || return 1
+      ver="${tag#v}"
+      re="^gitleaks_${ver//\./\\.}_linux_x64\\.tar\\.gz$"
+      install_github_release "gitleaks/gitleaks" "$re" "$TOOLS_ROOT/gitleaks" "$tag" \
+        "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" || return 1
+      has_cmd gitleaks || { log_err "gitleaks installed but not usable from $TOOLS_ROOT/gitleaks"; return 1; }
+      ;;
+    *) manual_required gitleaks "Install from the GitHub release: https://github.com/gitleaks/gitleaks" ;;
+  esac
+}
+
+ensure_subfinder() {
+  if has_cmd subfinder; then log_ok "subfinder ready: $(cmd_path subfinder)"; return 0; fi
+  case "$PLATFORM" in
+    macos) install_brew subfinder ;;
+    linux)
+      local tag ver re
+      tag=$(manifest_field subfinder releaseTag) || return 1
+      ver="${tag#v}"
+      re="^subfinder_${ver//\./\\.}_linux_amd64\\.zip$"
+      install_github_release "projectdiscovery/subfinder" "$re" "$TOOLS_ROOT/subfinder" "$tag" \
+        "1b7f9c608e9a5bd59e609a5e09710d63c5485e92d3d49dc2c16eb4fdbe10cb60" || return 1
+      has_cmd subfinder || { log_err "subfinder installed but not usable from $TOOLS_ROOT/subfinder"; return 1; }
+      ;;
+    *) manual_required subfinder "Install from the GitHub release: https://github.com/projectdiscovery/subfinder" ;;
+  esac
+}
 
 ensure_lldb() {
   if has_cmd lldb; then log_ok "lldb ready: $(cmd_path lldb)"; return 0; fi
@@ -1153,6 +1193,9 @@ ensure_capability() {
     unblob) ensure_unblob ;;
     ropper) ensure_ropper ;;
     semgrep) ensure_semgrep ;;
+    prowler) ensure_prowler ;;
+    gitleaks) ensure_gitleaks ;;
+    subfinder) ensure_subfinder ;;
     lldb) ensure_lldb ;;
     dotnet-sdk) ensure_dotnet_sdk ;;
     ilspycmd) ensure_ilspycmd ;;

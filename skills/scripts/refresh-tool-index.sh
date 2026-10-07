@@ -123,6 +123,9 @@ install_hint() {
     macos:dotnet-sdk) echo "dotnet-install.sh: curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir \$HOME/.dotnet" ;;
     macos:ilspycmd) echo "dotnet tool install -g ilspycmd --version 9.1.0.7988 (pin required; needs dotnet-sdk)" ;;
     linux:rekit|macos:rekit) echo "ships with reverse-skill: bash skills/tools/rekit/install.sh" ;;
+    linux:gitleaks|macos:gitleaks) echo "bootstrap: bash skills/scripts/bootstrap-reverse.sh gitleaks (macos brew: brew install gitleaks)" ;;
+    linux:subfinder|macos:subfinder) echo "bootstrap: bash skills/scripts/bootstrap-reverse.sh subfinder (macos brew: brew install subfinder)" ;;
+    linux:prowler|macos:prowler) echo "pipx: pipx install prowler==5.44.0 (bootstrap capability: prowler)" ;;
     linux:xquik-mcp|macos:xquik-mcp) echo "remote MCP: register https://xquik.com/mcp in the selected host, then complete OAuth" ;;
     *) echo "see PLATFORMS.md and docs/platforms/${PLATFORM}.md" ;;
   esac
@@ -175,6 +178,9 @@ TOOLS=(
   "dotnet-sdk|core-runtime|.NET SDK (dotnet CLI) for ilspycmd|dotnet|dotnet --version|$HOME/.dotnet/dotnet"
   "ilspycmd|dotnet-reverse|.NET assembly decompiler CLI|ilspycmd|ilspycmd --version|$HOME/.dotnet/tools/ilspycmd"
   "rekit|reverse-engineering|Fast static triage, semantic function corpus and findings registry (ships with reverse-skill)|rekit|rekit --version|$REPO_ROOT/skills/tools/rekit/rekit/__main__.py;$HOME/.local/bin/rekit"
+  "gitleaks|code-audit|Git secret scanning (API keys, tokens, passwords in repos)|gitleaks|gitleaks version|$HOME/tools/gitleaks/gitleaks"
+  "subfinder|pentest-tools|Passive subdomain discovery for external surface mapping|subfinder|subfinder -version|$HOME/tools/subfinder/subfinder"
+  "prowler|cloud-k8s|Cloud security benchmark scanning (AWS/Azure/GCP)|prowler|prowler --version|$HOME/.local/bin/prowler"
 )
 
 records_tmp="$(mktemp)"

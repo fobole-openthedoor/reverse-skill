@@ -38,6 +38,10 @@ description: Use for authorized cloud, container, and Kubernetes security assess
 aws sts get-caller-identity
 aws s3 ls
 # Azure / GCP 对应 identity 命令
+
+# 全账号 CIS 基准扫描（MUST 在授权账号内；IAM 是重点检查域）
+prowler aws                  # 或 prowler azure / prowler gcp
+prowler aws --services iam   # 只跑 IAM 检查
 ```
 
 ```text
@@ -75,6 +79,7 @@ kubectl get clusterrolebindings
 | 工具 | 用途 | 自举 |
 |------|------|------|
 | kubectl | 集群交互 | 手动 |
+| prowler | 云 CIS 基准/IAM 审计（AWS/Azure/GCP） | bootstrap `prowler`（pipx） |
 | trivy | 镜像/IaC | bootstrap `trivy` 若可用 |
 | kube-bench / kubeaudit | CIS/配置 | 手动 |
 | pacu / scoutsuite | 云审计（授权） | 手动 |

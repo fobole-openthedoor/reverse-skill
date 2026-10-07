@@ -467,6 +467,42 @@
       "canAutoInstall": false,
       "verifyCommand": "rekit",
       "manualInstallHint": "rekit ships inside reverse-skill at skills/tools/rekit. Linux/macOS/Kali: bash skills/tools/rekit/install.sh (installs fastembed + ~/.local/bin shim). Windows: powershell -File skills/tools/rekit/install.ps1."
+    },
+    {
+      "name": "gitleaks",
+      "bootstrapKind": "github-release-zip",
+      "repo": "gitleaks/gitleaks",
+      "assetRegex": "^gitleaks_8\\.30\\.1_windows_x64\\.zip$",
+      "installDir": "%USERPROFILE%\\Tools\\gitleaks",
+      "docsUrl": "https://github.com/gitleaks/gitleaks",
+      "canAutoInstall": true,
+      "verifyCommand": "gitleaks",
+      "releaseTag": "v8.30.1",
+      "preferApiDigest": true,
+      "note": "Windows asset pinned by releaseTag + GitHub API digest (bkcrack pattern). The Linux/macOS path in bootstrap-reverse.sh selects the platform asset by releaseTag and verifies the pinned linux_x64 sha256."
+    },
+    {
+      "name": "subfinder",
+      "bootstrapKind": "github-release-zip",
+      "repo": "projectdiscovery/subfinder",
+      "assetRegex": "^subfinder_2\\.16\\.0_windows_amd64\\.zip$",
+      "installDir": "%USERPROFILE%\\Tools\\subfinder",
+      "docsUrl": "https://github.com/projectdiscovery/subfinder",
+      "canAutoInstall": true,
+      "verifyCommand": "subfinder",
+      "releaseTag": "v2.16.0",
+      "preferApiDigest": true,
+      "note": "Same layout as gitleaks: Windows asset via releaseTag + API digest; the sh bootstrap installs the linux_amd64 zip with a pinned sha256."
+    },
+    {
+      "name": "prowler",
+      "bootstrapKind": "pip-package",
+      "pipPackage": "prowler==5.44.0",
+      "pinnedVersion": "5.44.0",
+      "docsUrl": "https://github.com/prowler-cloud/prowler",
+      "canAutoInstall": true,
+      "verifyCommand": "prowler",
+      "note": "Cloud security benchmark CLI (AWS/Azure/GCP); install via pipx (parity with semgrep/ropper)."
     }
   ]
 }

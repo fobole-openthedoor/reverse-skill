@@ -69,6 +69,9 @@ $scriptRefs = @{
     'dotnet-sdk' = @('dotnet-reverse/SKILL.md')
     'ilspycmd' = @('dotnet-reverse/SKILL.md')
     'rekit' = @('ghidra-reverse/SKILL.md', 'binary-diff/SKILL.md')
+    'gitleaks' = @('code-audit/SKILL.md')
+    'subfinder' = @('pentest-tools/SKILL.md')
+    'prowler' = @('cloud-k8s/SKILL.md')
 }
 
 $skillsRoot = Split-Path -Parent $PSScriptRoot
@@ -112,7 +115,7 @@ $markdownContent = ($markdownLines -join [Environment]::NewLine) + [Environment]
 $markdownContent | Set-Content -LiteralPath $OutputMarkdown -Encoding utf8
 
 # --- Capability status view ---
-$capabilityNames = @('jadx', 'apktool', 'jeb-pro', 'frida', 'frida-ps', 'idalib-mcp', 'jshookmcp', 'reqable-mcp', 'xquik-mcp', 'anything-analyzer', 'idapro', 'r2', 'rabin2', 'adb', 'agent-browser', 'ghidra-mcp', 'seclists', 'proxycat', 'burpsuite-mcp', 'pentestswarm', 'nmap', 'binwalk', 'yara', 'pwntools', 'bkcrack', 'angr', 'keystone-engine', 'lief', 'pefile', 'unblob', 'ropper', 'semgrep', 'lldb', 'dotnet-sdk', 'ilspycmd', 'rekit')
+$capabilityNames = @('jadx', 'apktool', 'jeb-pro', 'frida', 'frida-ps', 'idalib-mcp', 'jshookmcp', 'reqable-mcp', 'xquik-mcp', 'anything-analyzer', 'idapro', 'r2', 'rabin2', 'adb', 'agent-browser', 'ghidra-mcp', 'seclists', 'proxycat', 'burpsuite-mcp', 'pentestswarm', 'nmap', 'binwalk', 'yara', 'pwntools', 'bkcrack', 'angr', 'keystone-engine', 'lief', 'pefile', 'unblob', 'ropper', 'semgrep', 'lldb', 'dotnet-sdk', 'ilspycmd', 'rekit', 'gitleaks', 'subfinder', 'prowler')
 $capabilityRows = @()
 foreach ($capName in $capabilityNames) {
     $state = Get-ReverseCapabilityState -Name $capName

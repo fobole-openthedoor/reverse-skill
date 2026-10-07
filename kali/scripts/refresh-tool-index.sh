@@ -53,7 +53,7 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
     echo "| 能力 | 工具可用 | MCP 已注册 | 服务在线 | 可自动安装 | 安装方式 |"
     echo "|------|---------|-----------|---------|-----------|---------|"
 
-    CAPABILITY_NAMES=("jadx" "apktool" "jeb-pro" "binaryninja" "frida" "idalib-mcp" "jshookmcp" "reqable-mcp" "xquik-mcp" "anything-analyzer" "idapro" "r2" "adb" "agent-browser" "ghidra-mcp" "seclists" "proxycat" "burpsuite-mcp" "nmap" "sqlmap" "hashcat" "hydra" "gobuster" "ffuf" "msfconsole" "nuclei" "pwntools" "bkcrack" "angr" "keystone-engine" "lief" "pefile" "unblob" "ropper" "semgrep" "lldb" "dotnet-sdk" "ilspycmd" "rekit")
+    CAPABILITY_NAMES=("jadx" "apktool" "jeb-pro" "binaryninja" "frida" "idalib-mcp" "jshookmcp" "reqable-mcp" "xquik-mcp" "anything-analyzer" "idapro" "r2" "adb" "agent-browser" "ghidra-mcp" "seclists" "proxycat" "burpsuite-mcp" "nmap" "sqlmap" "hashcat" "hydra" "gobuster" "ffuf" "msfconsole" "nuclei" "pwntools" "bkcrack" "angr" "keystone-engine" "lief" "pefile" "unblob" "ropper" "semgrep" "lldb" "dotnet-sdk" "ilspycmd" "rekit" "gitleaks" "subfinder" "prowler")
 
     for cap_name in "${CAPABILITY_NAMES[@]}"; do
         # 检查工具是否可用
@@ -86,6 +86,15 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
                 ;;
             ilspycmd)
                 if command -v ilspycmd &>/dev/null || [[ -x "$HOME/.dotnet/tools/ilspycmd" ]]; then tool_available="✓"; fi
+                ;;
+            gitleaks)
+                if command -v gitleaks &>/dev/null || [[ -x "$HOME/tools/gitleaks/gitleaks" ]]; then tool_available="✓"; fi
+                ;;
+            subfinder)
+                if command -v subfinder &>/dev/null || [[ -x "$HOME/tools/subfinder/subfinder" ]]; then tool_available="✓"; fi
+                ;;
+            prowler)
+                if command -v prowler &>/dev/null || [[ -x "$HOME/.local/bin/prowler" ]]; then tool_available="✓"; fi
                 ;;
             *)
                 if command -v "$cap_name" &>/dev/null; then tool_available="✓"; fi
@@ -136,6 +145,12 @@ GENERATED_AT=$(date '+%Y-%m-%d %H:%M:%S %z')
                 ;;
             ilspycmd)
                 bootstrap_kind="dotnet-tool"
+                ;;
+            gitleaks|subfinder)
+                bootstrap_kind="github-release"
+                ;;
+            prowler)
+                bootstrap_kind="pip-package"
                 ;;
             jshookmcp|reqable-mcp|agent-browser)
                 bootstrap_kind="npm-mcp"
