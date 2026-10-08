@@ -116,6 +116,7 @@ Hot path only:
 - When writing tool-index.md entries, paths MUST be **complete absolute paths** (e.g., `D:\wangluo\jadx\bin\jadx.bat`, NOT just `jadx`). Include: full path, version number, install method, and verification command.
 - Same tool fails auto-install 2 times → stop retrying, output full manual install steps
 - MCP service port mismatch → ask user for actual port, help update config
+- **Analysis-engine ambiguity is a stop, not a coin flip** — when more than one analysis engine can serve the same target (e.g. Ghidra vs radare2 vs rekit), pick one explicitly and record the choice (scope.md); once picked, NEVER switch providers silently mid-task — VA bases, analysis state, and naming differ, so a mixed-provider evidence chain is invalid. A switch MUST be declared with its reason, and previously produced Evidence MUST be refreshed or marked superseded.
 - `tool-index.md` is the **shared registry** — all CLIs read from it, all CLIs write to it after installing
 
 ### Routing Decisions

@@ -151,3 +151,17 @@ Full recipes: [nalysis-decision-framework.md](analysis-decision-framework.md) (
 - 达不到确认线但方向正确 → 保持 candidate，记录 residual_risk 与缺口（缺哪个 family 的证据）。
 
 与上方 "Validated sufficiency" 的关系：该节是 Evidence **条数**硬规则，本节是 **质量/多样性**标尺，两者同时满足才可 validated。
+
+## Evidence 分级轴与 limitations 必填（contract-level）
+
+每条 Evidence 记录 SHOULD 标注两个正交轴（借鉴 REA 的 evidence envelope，见其 `src/domain/evidence.ts`）：
+
+- **confidence（获取方式）**：`observed`（直接观察：反汇编字节、命令输出、文件内容）| `derived`（由观察推导：xref 归属、污点路径、调用图）| `inferred`（模式/语义猜测：rekit triage 排名、嵌入相似度、命名推断）
+- **authority（权威来源）**：`shipped-artifact`（目标二进制本身）| `controlled-replay`（受控重放/动态调试）| `historical-reference`（历史源码/旧版符号）| `external-service`（威胁情报等外部源）| `analyst-inference`（分析者推断）
+
+规则：
+
+- 工具输出带 `confidence`/`limitations` 结构字段时（rekit ≥0.2.0 起），Evidence 记录 **MUST** 照抄这些字段；把 heuristic 输出写成 observed 事实 = 证据造假；
+- `inferred` / `analyst-inference` 证据永远不能单独支撑 validated（与 semantic family 规则同源）；
+- Finding 引用的 Evidence 若带工具声明的 limitations，Finding 正文 **MUST** 复述关键 limitation（防止"引用了结论就算免责"）；
+- 分析引擎选择遵循 RULES.md「歧义即错误」：多引擎可用时显式选定并记入 scope.md，任务中禁止静默切换。
