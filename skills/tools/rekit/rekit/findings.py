@@ -1,8 +1,9 @@
-"""Findings registry: structured vulnerability findings store backed by SQLite."""
+"""Findings registry: structured vulnerability findings and residual unknowns, backed by SQLite."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -13,6 +14,7 @@ from typing import Any, Sequence
 import numpy as np
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+UNKNOWN_STATUSES = ("open", "investigating", "blocked", "contradicted", "resolved")
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_TEXT_LIMIT = 500
 
@@ -34,6 +36,22 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE INDEX IF NOT EXISTS idx_findings_cwe ON findings(cwe);
 CREATE INDEX IF NOT EXISTS idx_findings_binary ON findings(binary_sha256);
 CREATE INDEX IF NOT EXISTS idx_findings_confirmed ON findings(confirmed);
+CREATE TABLE IF NOT EXISTS unknowns (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  binary_sha256 TEXT,
+  finding_id INTEGER,
+  title TEXT NOT NULL,
+  detail TEXT,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','investigating','blocked','contradicted','resolved')),
+  contradiction_evidence TEXT,
+  resolution TEXT,
+  revision INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_unknowns_status ON unknowns(status);
+CREATE INDEX IF NOT EXISTS idx_unknowns_binary ON unknowns(binary_sha256);
 """
 
 INSERT_SQL = """
@@ -41,6 +59,20 @@ INSERT INTO findings
   (ts, vendor, product, version, binary_sha256, binary_name, func_va, cwe,
    severity, title, description, evidence, confirmed, embedding)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+INSERT_UNKNOWN_SQL = """
+INSERT INTO unknowns
+  (id, ts, binary_sha256, finding_id, title, detail, status,
+   contradiction_evidence, resolution, revision, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+IMPORT_UNKNOWN_SQL = """
+INSERT OR IGNORE INTO unknowns
+  (id, ts, binary_sha256, finding_id, title, detail, status,
+   contradiction_evidence, resolution, revision, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 FIELDS = (
@@ -58,6 +90,20 @@ FIELDS = (
     "description",
     "evidence",
     "confirmed",
+)
+
+UNK_FIELDS = (
+    "id",
+    "ts",
+    "binary_sha256",
+    "finding_id",
+    "title",
+    "detail",
+    "status",
+    "contradiction_evidence",
+    "resolution",
+    "revision",
+    "updated_at",
 )
 
 _embedder: Any = None
@@ -81,6 +127,10 @@ def _connect() -> sqlite3.Connection:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _utc_now_precise() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _embed_text(title: str, cwe: str | None, description: str | None) -> str:
@@ -277,16 +327,154 @@ def _cmd_similar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _unknown_id(title: str, detail: str | None, binary_sha256: str | None, ts: str) -> str:
+    digest = hashlib.sha256(
+        "|".join((title, detail or "", binary_sha256 or "", ts)).encode("utf-8")
+    ).hexdigest()
+    return f"unk_{digest[:16]}"
+
+
+def _public_unknown(row: sqlite3.Row) -> dict[str, Any]:
+    return {key: row[key] for key in UNK_FIELDS}
+
+
+def _print_unknown_table(rows: list[sqlite3.Row]) -> None:
+    if not rows:
+        print("(no unknowns)")
+        return
+    print(f"{'ID':<21}  {'STATUS':<13}  {'REV':>3}  {'TS':<19}  TITLE")
+    for row in rows:
+        print(
+            f"{row['id']:<21}  {row['status']:<13}  {row['revision']:>3}  "
+            f"{row['ts'][:19]:<19}  {row['title']}"
+        )
+
+
+def _cmd_unknown_add(args: argparse.Namespace) -> int:
+    conn = _connect()
+    if args.finding_id is not None:
+        found = conn.execute(
+            "SELECT 1 FROM findings WHERE id = ?", (args.finding_id,)
+        ).fetchone()
+        if found is None:
+            print(f"finding {args.finding_id} not found", file=sys.stderr)
+            return 3
+    for _attempt in range(5):
+        ts = _utc_now_precise()
+        uid = _unknown_id(args.title, args.detail, args.binary_sha256, ts)
+        try:
+            with conn:
+                conn.execute(
+                    INSERT_UNKNOWN_SQL,
+                    (
+                        uid,
+                        ts,
+                        args.binary_sha256,
+                        args.finding_id,
+                        args.title,
+                        args.detail,
+                        "open",
+                        None,
+                        None,
+                        0,
+                        ts,
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            continue
+        print(uid)
+        return 0
+    print("could not generate a unique unknown id", file=sys.stderr)
+    return 3
+
+
+def _cmd_unknown_list(args: argparse.Namespace) -> int:
+    sql = "SELECT * FROM unknowns"
+    params: list[str] = []
+    if args.status:
+        sql += " WHERE status = ?"
+        params.append(args.status)
+    rows = _connect().execute(f"{sql} ORDER BY ts, id", params).fetchall()
+    if args.json:
+        print(json.dumps([_public_unknown(row) for row in rows], indent=2))
+    else:
+        _print_unknown_table(rows)
+    return 0
+
+
+def _cmd_unknown_show(args: argparse.Namespace) -> int:
+    row = _connect().execute("SELECT * FROM unknowns WHERE id = ?", (args.id,)).fetchone()
+    if row is None:
+        print(f"unknown {args.id} not found", file=sys.stderr)
+        return 3
+    if args.json:
+        print(json.dumps(_public_unknown(row), indent=2))
+    else:
+        for key in UNK_FIELDS:
+            print(f"{key}: {row[key]}")
+    return 0
+
+
+def _cmd_unknown_update(args: argparse.Namespace) -> int:
+    conn = _connect()
+    row = conn.execute("SELECT * FROM unknowns WHERE id = ?", (args.id,)).fetchone()
+    if row is None:
+        print(f"unknown {args.id} not found", file=sys.stderr)
+        return 3
+    if args.status == "contradicted" and not args.evidence:
+        print("--evidence is required when marking contradicted", file=sys.stderr)
+        return 3
+    if args.status == "resolved" and not args.resolution:
+        print("--resolution is required when marking resolved", file=sys.stderr)
+        return 3
+    if args.revision != row["revision"]:
+        print(
+            f"stale revision: got {args.revision}, current is {row['revision']}",
+            file=sys.stderr,
+        )
+        return 3
+    evidence = args.evidence if args.evidence is not None else row["contradiction_evidence"]
+    resolution = args.resolution if args.resolution is not None else row["resolution"]
+    new_revision = row["revision"] + 1
+    with conn:
+        cur = conn.execute(
+            "UPDATE unknowns SET status = ?, contradiction_evidence = ?, resolution = ?,"
+            " revision = ?, updated_at = ? WHERE id = ? AND revision = ?",
+            (
+                args.status,
+                evidence,
+                resolution,
+                new_revision,
+                _utc_now_precise(),
+                args.id,
+                args.revision,
+            ),
+        )
+    if cur.rowcount == 0:
+        print(
+            f"stale revision: got {args.revision}, current is {row['revision']}",
+            file=sys.stderr,
+        )
+        return 3
+    print(f"{args.id} -> {args.status} (revision {new_revision})")
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
+    conn = _connect()
     sql = "SELECT * FROM findings"
     if args.confirmed_only:
         sql += " WHERE confirmed = 1"
-    rows = _connect().execute(f"{sql} ORDER BY id").fetchall()
-    data = [_public_row(row) for row in rows]
+    finding_rows = conn.execute(f"{sql} ORDER BY id").fetchall()
+    unknown_rows = conn.execute("SELECT * FROM unknowns ORDER BY ts, id").fetchall()
+    data = {
+        "findings": [_public_row(row) for row in finding_rows],
+        "unknowns": [_public_unknown(row) for row in unknown_rows],
+    }
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
-    print(f"exported {len(data)}")
+    print(f"exported {len(data['findings'])} findings, {len(data['unknowns'])} unknowns")
     return 0
 
 
@@ -297,14 +485,24 @@ def _cmd_import(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"cannot read {args.file}: {exc}", file=sys.stderr)
         return 3
-    if not isinstance(data, list):
-        print(f"{args.file}: top-level JSON array expected", file=sys.stderr)
+    if isinstance(data, list):
+        finding_entries: list[Any] = data
+        unknown_entries: list[Any] = []
+    elif isinstance(data, dict):
+        finding_entries = data.get("findings") or []
+        unknown_entries = data.get("unknowns") or []
+        if not isinstance(finding_entries, list) or not isinstance(unknown_entries, list):
+            print(f"{args.file}: findings/unknowns must be arrays", file=sys.stderr)
+            return 3
+    else:
+        print(f"{args.file}: top-level JSON array or object expected", file=sys.stderr)
         return 3
     conn = _connect()
-    count = 0
+    findings_count = 0
+    unknowns_count = 0
     try:
         with conn:
-            for entry in data:
+            for entry in finding_entries:
                 if not isinstance(entry, dict) or not entry.get("title"):
                     raise ValueError("every entry needs a non-empty title")
                 severity = entry.get("severity") or "INFO"
@@ -332,11 +530,38 @@ def _cmd_import(args: argparse.Namespace) -> int:
                         blob,
                     ),
                 )
-                count += 1
+                findings_count += 1
+            for entry in unknown_entries:
+                if not isinstance(entry, dict) or not entry.get("title"):
+                    raise ValueError("every unknown entry needs a non-empty title")
+                status = entry.get("status") or "open"
+                if status not in UNKNOWN_STATUSES:
+                    raise ValueError(f"invalid unknown status {status!r}")
+                ts = entry.get("ts") or _utc_now_precise()
+                uid = entry.get("id") or _unknown_id(
+                    entry["title"], entry.get("detail"), entry.get("binary_sha256"), ts
+                )
+                cur = conn.execute(
+                    IMPORT_UNKNOWN_SQL,
+                    (
+                        uid,
+                        ts,
+                        entry.get("binary_sha256"),
+                        entry.get("finding_id"),
+                        entry["title"],
+                        entry.get("detail"),
+                        status,
+                        entry.get("contradiction_evidence"),
+                        entry.get("resolution"),
+                        int(entry.get("revision") or 0),
+                        entry.get("updated_at") or ts,
+                    ),
+                )
+                unknowns_count += cur.rowcount
     except (ValueError, sqlite3.Error) as exc:
         print(f"import failed: {exc}", file=sys.stderr)
         return 3
-    print(f"imported {count}")
+    print(f"imported {findings_count} findings, {unknowns_count} unknowns")
     return 0
 
 
@@ -346,6 +571,36 @@ def _dispatch(args: argparse.Namespace) -> int:
     except (sqlite3.Error, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
+
+
+def _add_unknown_subcommands(parser: argparse.ArgumentParser) -> None:
+    parser.set_defaults(func=_dispatch)
+    sub = parser.add_subparsers(dest="unknown_command", metavar="<command>", required=True)
+
+    p = sub.add_parser("add", help="register an open question")
+    p.add_argument("--title", required=True)
+    p.add_argument("--detail")
+    p.add_argument("--binary-sha256")
+    p.add_argument("--finding-id", type=int)
+    p.set_defaults(handler=_cmd_unknown_add)
+
+    p = sub.add_parser("list", help="list unknowns")
+    p.add_argument("--status", choices=UNKNOWN_STATUSES)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(handler=_cmd_unknown_list)
+
+    p = sub.add_parser("show", help="show one unknown")
+    p.add_argument("id")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(handler=_cmd_unknown_show)
+
+    p = sub.add_parser("update", help="transition unknown status (optimistic locking)")
+    p.add_argument("id")
+    p.add_argument("--status", required=True, choices=UNKNOWN_STATUSES)
+    p.add_argument("--evidence")
+    p.add_argument("--resolution")
+    p.add_argument("--revision", required=True, type=int)
+    p.set_defaults(handler=_cmd_unknown_update)
 
 
 def _add_subcommands(parser: argparse.ArgumentParser) -> None:
@@ -394,14 +649,17 @@ def _add_subcommands(parser: argparse.ArgumentParser) -> None:
     p.add_argument("--json", action="store_true")
     p.set_defaults(handler=_cmd_similar)
 
-    p = sub.add_parser("export", help="export findings to a JSON array")
+    p = sub.add_parser("export", help="export findings and unknowns to JSON")
     p.add_argument("file")
     p.add_argument("--confirmed-only", action="store_true")
     p.set_defaults(handler=_cmd_export)
 
-    p = sub.add_parser("import", help="import findings from a JSON array")
+    p = sub.add_parser("import", help="import findings and unknowns from JSON")
     p.add_argument("file")
     p.set_defaults(handler=_cmd_import)
+
+    p = sub.add_parser("unknown", help="open questions / residual unknowns")
+    _add_unknown_subcommands(p)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:

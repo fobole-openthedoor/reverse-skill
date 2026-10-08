@@ -111,19 +111,23 @@ def main():
         run(["export", export_all], env)
         with open(export_all, encoding="utf-8") as fh:
             data = json.load(fh)
-        assert len(data) == 2, f"export all returned {len(data)}"
-        assert all("embedding" not in entry for entry in data), "export leaked embedding"
+        assert len(data["findings"]) == 2, f"export all returned {len(data['findings'])}"
+        assert all(
+            "embedding" not in entry for entry in data["findings"]
+        ), "export leaked embedding"
+        assert data["unknowns"] == [], data["unknowns"]
 
         export_conf = os.path.join(tmp, "confirmed.json")
         run(["export", export_conf, "--confirmed-only"], env)
         with open(export_conf, encoding="utf-8") as fh:
             data = json.load(fh)
-        assert len(data) == 1 and data[0]["confirmed"] == 1 and data[0]["id"] == id1, data
+        conf = data["findings"]
+        assert len(conf) == 1 and conf[0]["confirmed"] == 1 and conf[0]["id"] == id1, data
 
         env2 = dict(env)
         env2["REKIT_FINDINGS_DB"] = os.path.join(tmp, "findings-b.db")
         out = run(["import", export_all], env2).stdout.strip()
-        assert out == "imported 2", out
+        assert out == "imported 2 findings, 0 unknowns", out
         rows = json.loads(run(["list", "--json"], env2).stdout)
         assert len(rows) == 2, f"imported db has {len(rows)} rows"
 

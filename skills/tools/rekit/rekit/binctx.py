@@ -12,6 +12,7 @@ import lief.PE as LP
 import numpy as np
 from numpy.lib.stride_tricks import as_strided, sliding_window_view
 
+from . import __version__
 from .disasmx import linear_disasm, make_cs
 
 CACHE_VERSION = 1
@@ -338,7 +339,7 @@ def _plt_stubs_arm64(b: LE.Binary, got: dict[int, str]) -> dict[str, int]:
 
 def _elf_func_starts(
     b: LE.Binary, arch: str, plt: dict[str, int], text_secs: list[CodeSec]
-) -> tuple[list[int], dict[int, str]]:
+) -> tuple[list[int], dict[int, str], bool]:
     starts: set[int] = set()
     names: dict[int, str] = {}
     for sym in b.dynamic_symbols:
@@ -346,27 +347,33 @@ def _elf_func_starts(
             starts.add(int(sym.value))
             if sym.name:
                 names[int(sym.value)] = sym.name
-    for sym in b.exported_symbols:
-        if sym.value:
-            starts.add(int(sym.value))
-            if sym.name:
-                names.setdefault(int(sym.value), sym.name)
     for sym in b.symtab_symbols:
         if sym.value and sym.type == LE.Symbol.TYPE.FUNC:
             starts.add(int(sym.value))
             if sym.name:
                 names[int(sym.value)] = sym.name
+    symtab_count = len(starts)
+    for sym in b.exported_symbols:
+        if sym.value:
+            starts.add(int(sym.value))
+            if sym.name:
+                names.setdefault(int(sym.value), sym.name)
     for name, va in plt.items():
         starts.add(va)
         names[va] = name
+    prologue_new = 0
     if arch == "x86-64":
         for code, va in text_secs:
             arr = np.frombuffer(code, dtype=np.uint8)
             for pat in (b"\xf3\x0f\x1e\xfa", b"\x55\x48\x89\xe5"):
                 for off in _pattern_hits(arr, pat).tolist():
-                    starts.add(va + off)
+                    hit = va + off
+                    if hit not in starts:
+                        prologue_new += 1
+                        starts.add(hit)
     starts.discard(0)
-    return sorted(starts), names
+    prologue_fallback = prologue_new > symtab_count
+    return sorted(starts), names, prologue_fallback
 
 
 def _exports_elf(b: LE.Binary) -> dict[str, int]:
@@ -387,7 +394,7 @@ def _extract_elf(b: LE.Binary, digest: str) -> dict:
     else:
         plt = {}
     text_secs = _elf_text_secs(b)
-    func_starts, names = _elf_func_starts(b, arch, plt, text_secs)
+    func_starts, names, prologue_fallback = _elf_func_starts(b, arch, plt, text_secs)
     exports = _exports_elf(b)
     strings = _extract_strings_elf(b)
     valid = set(func_starts) | set(plt.values()) | set(exports.values())
@@ -401,6 +408,9 @@ def _extract_elf(b: LE.Binary, digest: str) -> dict:
     return {
         "version": CACHE_VERSION,
         "format": "elf",
+        "rekit_version": __version__,
+        "prologue_fallback": prologue_fallback,
+        "thunk_remap": False,
         "sha256": digest,
         "arch": arch,
         "bits": bits,
@@ -504,7 +514,7 @@ def _pe_pdata_begins(b: LP.Binary, ib: int) -> list[int]:
 
 def _pe_func_starts(
     b: LP.Binary, ib: int, plt: dict[str, int], exports: dict[str, int], arch: str, text_secs: list[CodeSec]
-) -> tuple[list[int], dict[int, str]]:
+) -> tuple[list[int], dict[int, str], bool]:
     starts: set[int] = set(_pe_pdata_begins(b, ib))
     names: dict[int, str] = {}
     for name, va in exports.items():
@@ -520,9 +530,11 @@ def _pe_func_starts(
                 names[va] = s.name
     except Exception:
         pass
+    authoritative = len(starts)
     for name, va in plt.items():
         starts.add(va)
         names.setdefault(va, name)
+    prologue_new = 0
     if arch == "x86-64":
         auth = sorted(starts)
         extra: set[int] = set()
@@ -535,10 +547,13 @@ def _pe_func_starts(
             i = bisect_right(auth, x) - 1
             if i >= 0 and 0 < x - auth[i] <= 0x10:
                 continue
-            starts.add(x)
+            if x not in starts:
+                prologue_new += 1
+                starts.add(x)
     starts.discard(0)
     starts.discard(ib)
-    return sorted(starts), names
+    prologue_fallback = prologue_new > authoritative
+    return sorted(starts), names, prologue_fallback
 
 
 def _pe_iat_thunks(text_secs: list[CodeSec], iat_vas: set[int]) -> dict[int, int]:
@@ -575,7 +590,7 @@ def _extract_pe(b: LP.Binary, digest: str) -> dict:
     plt = _pe_imports(b, ib)
     exports = _pe_exports(b, ib)
     strings = _extract_strings_pe(b, ib)
-    func_starts, names = _pe_func_starts(b, ib, plt, exports, arch, text_secs)
+    func_starts, names, prologue_fallback = _pe_func_starts(b, ib, plt, exports, arch, text_secs)
     valid = set(func_starts) | set(plt.values()) | set(exports.values())
     thunks = _pe_iat_thunks(text_secs, set(plt.values())) if arch == "x86-64" else {}
     call_edges = _call_edges(text_secs, arch, func_starts, valid, set(plt.values()), thunks)
@@ -583,6 +598,9 @@ def _extract_pe(b: LP.Binary, digest: str) -> dict:
     return {
         "version": CACHE_VERSION,
         "format": "pe",
+        "rekit_version": __version__,
+        "prologue_fallback": prologue_fallback,
+        "thunk_remap": bool(thunks),
         "sha256": digest,
         "arch": arch,
         "bits": bits,
@@ -618,6 +636,8 @@ class BinaryContext:
         self.sha256 = data["sha256"]
         self.key = self.sha256[:16]
         self.format = data.get("format", "elf")
+        self.prologue_fallback = bool(data.get("prologue_fallback", False))
+        self.thunk_remap = bool(data.get("thunk_remap", False))
         self.arch = data["arch"]
         self.bits = data["bits"]
         self.image_base = data["image_base"]
@@ -656,14 +676,24 @@ class BinaryContext:
         key = digest[:16]
         cache_path = os.path.join(home, f"{key}_{os.path.basename(path)}.json")
         data = None
+        invalidated_by_version = False
         try:
             with open(cache_path, encoding="utf-8") as f:
                 cand = json.load(f)
             if cand.get("sha256") == digest and cand.get("version") == CACHE_VERSION:
-                data = cand
+                if cand.get("rekit_version") == __version__:
+                    data = cand
+                else:
+                    invalidated_by_version = True
         except (OSError, ValueError, KeyError):
             data = None
         if data is None:
+            if invalidated_by_version:
+                cached_ver = cand.get("rekit_version") if isinstance(cand, dict) else None
+                print(
+                    f"rekit: cache invalidated by rekit version (cached {cached_ver}, current {__version__})",
+                    file=sys.stderr,
+                )
             data = _extract(path, digest)
             tmp = cache_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:

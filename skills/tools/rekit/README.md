@@ -1,10 +1,12 @@
 # rekit — omp 逆向特化工具包
 
-rekit 是随 reverse-skill 分发的 Python 工具(包代码在 `rekit/`,经 `python3 -m rekit` 调用),为 omp 逆向环境提供三件事:
+当前版本 0.2.0。rekit 是随 reverse-skill 分发的 Python 工具(包代码在 `rekit/`,经 `python3 -m rekit` 调用),为 omp 逆向环境提供五件事:
 
 1. **二进制快速预检(triage)** — ELF/PE 解析 + numpy 向量化扫描 + sha256 缓存,大二进制/固件秒级出排序候选,不必先开 Ghidra/IDA 全量分析。
 2. **语义函数语料(corpus)** — fastembed 嵌入函数特征,自然语言搜函数;`match` 做跨版本候选预筛,是 binary-diff 的前置。
 3. **findings registry** — SQLite 结构化发现登记,CWE 化条目可 confirm / export / import,与 field-journal 的叙事经验互补。
+4. **crypto 小套件** — 滑窗熵图 + 重复密钥 XOR 恢复(keylen 猜测 / 列频率攻击 / crib 已知明文攻击),补固件自钥 XOR 解密缺口。
+5. **electron 静态构图** — ASAR 完整性校验(inventory)与 Electron 安全边界提取(boundary:webPreferences / IPC 通道配对 / contextBridge 暴露面)。
 
 clean-room 实现,未使用 GPL 代码。
 
@@ -59,6 +61,8 @@ install 脚本:pip 安装 `fastembed==0.8.1`(可选依赖)→ 在 `~/.local/bin/
 | `rekit findings export / import` | 导出 / 导入(团队协作、跨机迁移) |
 | `rekit crypto entropy <file>` | 滑窗 Shannon 熵图,定位高熵(加密/压缩)区域 |
 | `rekit crypto xor <file>` | 重复密钥 XOR 恢复:keylen 猜测 / 列频率攻击 / 已知明文(crib)攻击 |
+| `rekit electron inventory <app.asar|目录>` | ASAR 完整性校验:逐 entry 重算 SHA-256(含分块与 unpacked 伴生文件),contradictions 单列且绝不静默 |
+| `rekit electron boundary <app.asar|目录>` | 提取安全边界:webPreferences、IPC 通道配对(paired/unpaired/ambiguous)、contextBridge key、危险模式 |
 
 多数子命令支持 `--json`,供脚本与 agent 消费。
 
@@ -105,6 +109,30 @@ rekit crypto xor firmware.bin --offset 0x12000 --magic 7f454c46 --out fw.dec
 - crib 候选按 IoC(重合指数)排名:真 key 还原明文结构,IoC 显著高于噪声;不受明文字节分布(文本 / 机器码 / 零填充)影响
 - 无 crib 的列频率攻击依赖明文可打印性,机器码密集区域请走 crib 模式
 
+## electron 静态构图
+
+```bash
+rekit electron inventory app.asar          # 逐 entry 校验 SHA-256(含 blocks 与 .asar.unpacked 伴生文件)
+rekit electron boundary app.asar --json    # webPreferences / IPC 配对 / contextBridge / 危险模式
+rekit electron boundary extracted_dir/     # 解包目录同样可用(inventory 的 integrity 标 n/a)
+```
+
+boundary 是正则级静态提取:动态拼接的通道名计入 `ambiguous`,压缩/打包代码(单行 >10KB)会追加一条 limitation。
+
+## 证据字段约定(confidence / limitations)
+
+`--json` 输出顶层统一携带两个证据字段(0.2.0 起):
+
+- `confidence`: `"observed"` = 确定性提取(反汇编字节、字符串内容、ASAR 哈希校验);`"heuristic"` = 启发式推断(调用图、xref、triage 排名、boundary 正则提取)。
+- `limitations`: 字符串数组,按实际数据来源动态给出,例如:
+  - `direct calls only; indirect calls unresolved`(存在调用边时)
+  - `approximate sites: disp32 sliding-window scan`(x86-64 xref)/ `ADRP+ADD linear pairing; ...`(arm64 xref)
+  - `heuristic prologue scan used when no eh_frame/.pdata/symbols`(启发式函数发现占多数时)
+  - `import calls remapped through MinGW thunks`(PE 发生 thunk 归并时)
+  - `heuristic ranking, not a vulnerability verdict`(triage)
+
+人类可读输出不改表格式,仅在 stderr 追加一行 `confidence=...; limitations: ...`。
+
 ## 缓存与数据
 
 | 路径 | 用途 |
@@ -113,3 +141,4 @@ rekit crypto xor firmware.bin --offset 0x12000 --magic 7f454c46 --out fw.dec
 | `REKIT_FINDINGS_DB`(默认 `~/.local/share/rekit/findings.db`) | findings SQLite 库 |
 
 清缓存删 `REKIT_HOME` 即可;findings 库独立存放,不受影响。
+扫描缓存与 corpus meta 均携带 `rekit_version`;rekit 升级后旧缓存自动失效重建(stderr 打 `cache invalidated by rekit version`)。

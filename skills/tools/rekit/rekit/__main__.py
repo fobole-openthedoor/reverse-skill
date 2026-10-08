@@ -57,6 +57,35 @@ def _func_record(ctx: BinaryContext, va: int) -> dict:
     }
 
 
+def _evidence(ctx: BinaryContext, kind: str) -> tuple[str, list[str]]:
+    lim: list[str] = []
+    heuristic = False
+    if kind in ("scan", "triage", "funcs", "calls") and ctx.call_edges:
+        heuristic = True
+        lim.append("direct calls only; indirect calls unresolved")
+    if kind in ("scan", "triage", "xrefs") and ctx.string_xrefs:
+        heuristic = True
+        if ctx.arch == "x86-64":
+            lim.append("approximate sites: disp32 sliding-window scan")
+        elif ctx.arch == "arm64":
+            lim.append("ADRP+ADD linear pairing; jump tables and LDR literals not covered")
+    if kind in ("scan", "triage", "funcs") and ctx.prologue_fallback:
+        heuristic = True
+        lim.append("heuristic prologue scan used when no eh_frame/.pdata/symbols")
+    if kind in ("scan", "triage", "funcs", "calls") and ctx.thunk_remap:
+        heuristic = True
+        lim.append("import calls remapped through MinGW thunks")
+    if kind == "triage":
+        heuristic = True
+        lim.append("heuristic ranking, not a vulnerability verdict")
+    return ("heuristic" if heuristic else "observed"), lim
+
+
+def _note_evidence(conf: str, lim: list[str]) -> None:
+    if lim:
+        print(f"rekit: confidence={conf}; limitations: {'; '.join(lim)}", file=sys.stderr)
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     ctx = _load(args.binary)
     dangerous = [
@@ -79,6 +108,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         "suspicious_strings": suspicious[:10],
         "suspicious_total": len(suspicious),
     }
+    conf, lim = _evidence(ctx, "scan")
+    result["confidence"] = conf
+    result["limitations"] = lim
     if args.json:
         _dump(result)
         return 0
@@ -98,6 +130,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     lines.append(f"suspicious strings (top {min(10, len(suspicious))} of {len(suspicious)}):")
     lines += [f"  {s['va']:#x} {_trunc(s['text'], 80)}" for s in suspicious[:10]]
     print("\n".join(lines))
+    _note_evidence(conf, lim)
     return 0
 
 
@@ -108,8 +141,9 @@ def _cmd_funcs(args: argparse.Namespace) -> int:
         recs.sort(key=lambda r: r["va"])
     else:
         recs.sort(key=lambda r: (-r[args.sort], r["va"]))
+    conf, lim = _evidence(ctx, "funcs")
     if args.json:
-        _dump({"count": len(recs), "functions": recs})
+        _dump({"count": len(recs), "functions": recs, "confidence": conf, "limitations": lim})
         return 0
     for r in recs:
         plt = _trunc(",".join(r["plt_calls"]))
@@ -117,6 +151,7 @@ def _cmd_funcs(args: argparse.Namespace) -> int:
             f"{r['va']:#014x} {r['size']:>6} {r['indegree']:>4} {r['score']:>7.2f} "
             f"{r['role']:<10} {(r['name'] or '-'):<24} {plt}"
         )
+    _note_evidence(conf, lim)
     return 0
 
 
@@ -127,7 +162,8 @@ def _cmd_strings(args: argparse.Namespace) -> int:
         q = args.query.lower()
         items = [(v, s) for v, s in items if q in s.lower()]
     if args.json:
-        _dump({"count": len(items), "strings": [{"va": v, "text": s} for v, s in items]})
+        _dump({"count": len(items), "strings": [{"va": v, "text": s} for v, s in items],
+               "confidence": "observed", "limitations": []})
         return 0
     for v, s in items:
         print(f"{v:#014x}  {s}")
@@ -152,12 +188,15 @@ def _cmd_xrefs(args: argparse.Namespace) -> int:
         {"site": site, "string_va": sva, "func": ctx.func_containing(site), "text": ctx.strings.get(sva, "")}
         for site, sva in hits
     ]
+    conf, lim = _evidence(ctx, "xrefs")
     if args.json:
         _dump(
             {
                 "target": target,
                 "matches": [{"va": v, "text": s} for v, s in sorted(matches.items())],
                 "xrefs": xrefs,
+                "confidence": conf,
+                "limitations": lim,
             }
         )
         return 0
@@ -169,6 +208,7 @@ def _cmd_xrefs(args: argparse.Namespace) -> int:
         print(f"{x['site']:#014x} -> {x['string_va']:#x}{where}  {x['text']!r}")
     if not xrefs:
         print("no xrefs found")
+    _note_evidence(conf, lim)
     return 0
 
 
@@ -188,11 +228,13 @@ def _cmd_calls(args: argparse.Namespace) -> int:
         }
         for c, t, s in edges
     ]
+    conf, lim = _evidence(ctx, "calls")
     if args.json:
-        _dump({"count": len(rows), "edges": rows})
+        _dump({"count": len(rows), "edges": rows, "confidence": conf, "limitations": lim})
         return 0
     for r in rows:
         print(f"{r['caller']:#014x} -> {r['target']:#014x} @ {r['site']:#x} {r['target_name']}")
+    _note_evidence(conf, lim)
     return 0
 
 
@@ -205,6 +247,8 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
                 "va": args.va,
                 "count": len(insns),
                 "insns": [{"va": a, "mnemonic": m, "op_str": o} for a, m, o in insns],
+                "confidence": "observed",
+                "limitations": [],
             }
         )
         return 0
@@ -218,8 +262,9 @@ def _cmd_triage(args: argparse.Namespace) -> int:
     recs = [_func_record(ctx, va) for va in ctx.func_starts]
     recs.sort(key=lambda r: (-r["score"], r["va"]))
     top = recs[: max(args.k, 0)]
+    conf, lim = _evidence(ctx, "triage")
     if args.json:
-        _dump({"total": len(recs), "k": args.k, "top": top})
+        _dump({"total": len(recs), "k": args.k, "top": top, "confidence": conf, "limitations": lim})
         return 0
     for r in top:
         danger = ",".join(f"{d['name']}({d['label']})" for d in r["dangerous"])
@@ -234,6 +279,7 @@ def _cmd_triage(args: argparse.Namespace) -> int:
             f"{r['va']:#014x} {r['size']:>6} {r['indegree']:>4} {r['score']:>7.2f} "
             f"{r['role']:<10} {(r['name'] or '-'):<20} {pltcell:<40} {strs}"
         )
+    _note_evidence(conf, lim)
     return 0
 
 
@@ -286,7 +332,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_triage)
 
-    for modname in ("corpus", "findings", "crypto"):
+    for modname in ("corpus", "findings", "crypto", "electron"):
         try:
             mod = importlib.import_module(f".{modname}", __package__)
             mod.register(sub)

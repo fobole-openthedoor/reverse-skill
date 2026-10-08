@@ -13,6 +13,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from . import __version__
 from .binctx import BinaryContext, RekitError
 from .roles import role_for
 
@@ -216,7 +217,11 @@ def _try_load(ctx: BinaryContext) -> Corpus | None:
     try:
         with open(os.path.join(directory, "meta.json"), encoding="utf-8") as f:
             meta = json.load(f)
-        if meta.get("sha256") != ctx.sha256 or meta.get("model") != EMBED_MODEL:
+        if (
+            meta.get("sha256") != ctx.sha256
+            or meta.get("model") != EMBED_MODEL
+            or meta.get("rekit_version") != __version__
+        ):
             return None
         with open(os.path.join(directory, "profiles.json"), encoding="utf-8") as f:
             profiles = json.load(f)
@@ -240,6 +245,7 @@ def _build_and_persist(ctx: BinaryContext) -> Corpus:
         "binary": ctx.path,
         "arch": ctx.arch,
         "model": EMBED_MODEL,
+        "rekit_version": __version__,
         "dim": int(vectors.shape[1]) if vectors.ndim == 2 else EMBED_DIM,
         "count": len(profiles),
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
